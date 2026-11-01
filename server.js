@@ -22,11 +22,18 @@ if(!db.prepare('SELECT id FROM content WHERE id=1').get()) db.prepare('INSERT IN
 const password=process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
 if(!process.env.ADMIN_PASSWORD) console.log(`临时管理员密码（重启后变化）: ${password}`);
 const salt=randomBytes(16), hash=scryptSync(password,salt,64), sessions=new Map();
-const content=(field)=>JSON.parse(db.prepare('SELECT draft,published FROM content WHERE id=1').get()[field]);
+const whatsappDefaults={enabled:false,phone:'',messages:{en:'Hi! I would like to know more about your watches.',de:'Hallo! Ich möchte mehr über Ihre Uhren erfahren.',es:'¡Hola! Me gustaría saber más sobre sus relojes.'}};
+const content=(field)=>{const c=JSON.parse(db.prepare('SELECT draft,published FROM content WHERE id=1').get()[field]);return{...c,whatsapp:{...whatsappDefaults,...c.whatsapp,messages:{...whatsappDefaults.messages,...c.whatsapp?.messages}}};};
 const save=(field,value)=>db.prepare(`UPDATE content SET ${field}=? WHERE id=1`).run(JSON.stringify(value));
 function validate(c){
  if(!c||typeof c!=='object'||!Array.isArray(c.products)||!Array.isArray(c.categories)||!Array.isArray(c.sections)) throw Error('内容格式错误');
  for(const key of ['brand','announcement','title','subtitle','eyebrow','heroImage','accent']) if(typeof c[key]!=='string') throw Error('页面字段不完整');
+ if(c.whatsapp!==undefined){const w=c.whatsapp;if(!w||typeof w!=='object'||typeof w.enabled!=='boolean'||typeof w.phone!=='string'||!w.messages||typeof w.messages!=='object')throw Error('WhatsApp 配置格式错误');
+ if(!/^[+0-9 ()-]*$/.test(w.phone))throw Error('WhatsApp 号码只允许国际区号和数字');
+ const phone=w.phone.replace(/[+ ()-]/g,'');if((phone||w.enabled)&&!/^[1-9][0-9]{6,14}$/.test(phone))throw Error('请填写有效的 WhatsApp 国际号码，例如 +44…，不要填写本地前导 0');
+ if(['en','de','es'].some(lang=>typeof w.messages[lang]!=='string'||w.messages[lang].length>1000))throw Error('WhatsApp 预填消息每种语言最多 1000 字符');
+ c.whatsapp={enabled:w.enabled,phone,messages:Object.fromEntries(['en','de','es'].map(lang=>[lang,w.messages[lang]]))};
+ }
  if(!/^#[0-9a-f]{6}$/i.test(c.accent)) throw Error('主题色需要使用六位十六进制颜色');
  for(const lang of ['de','es']) {
  const page=c.translations?.[lang];if(page&&(typeof page!=='object'||Object.values(page).some(v=>typeof v!=='string')))throw Error('Invalid page translations');
