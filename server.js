@@ -163,6 +163,25 @@ const allowedProviders=(config,env,policy)=>{
  if(PAYMENT_RULES_OFF||!policy)return list;
  return list.includes(policy)?[policy]:[];
 };
+const paymentGapHint=policy=>{
+ if(PAYMENT_RULES_OFF||!policy)return null;
+ const cfg=paymentConfigFull(),env=paymentEnv(),r=readiness(cfg,env),m=methods(cfg,env);
+ if(m[policy])return null;
+ const miss=[];
+ if(policy==='paypal'){
+  const on=cfg.paypalEnabled?'':'PayPal 未启用';
+  if(on)miss.push(on);
+  if(!cfg.paypalClientId&&!env.PAYPAL_CLIENT_ID)miss.push('缺 Client ID');
+  if(!cfg.paypalClientSecret&&!env.PAYPAL_CLIENT_SECRET)miss.push('缺 Secret');
+  if(!cfg.paypalWebhookId&&!env.PAYPAL_WEBHOOK_ID)miss.push('缺 Webhook ID');
+  if(!r.publicURL)miss.push('PUBLIC_BASE_URL 不是 https 公网地址');
+  return '这笔订单只能用 PayPal，但 PayPal 还没配好：'+miss.join('、')+'。在后台「支付设置」补齐后即可收款。';
+ }
+ const on=cfg.usdtEnabled?'':'USDT 未启用';
+ if(on)miss.push(on);
+ if(!r.usdtWallet)miss.push('收款钱包地址无效');
+ return '这笔订单只能用 USDT，但 USDT 还没配好：'+miss.join('、')+'。在后台「支付设置」补齐后即可收款。';
+};
 const paymentView=p=>p?{provider:p.provider,mode:p.mode,status:p.status,amount:p.amount,currency:p.currency,network:p.network,transactionId:p.transactionId,paidAt:p.paidAt,url:p.url,address:p.address,usdtAmount:p.usdtAmount,rate:p.rate,submittedHash:p.submittedHash}:null;
 const seed={closingTitle:'Make every moment yours.',closingText:'Your own rhythm. Your own signature.',closingLink:'Discover your next classic',footer:'Time well considered.',promise1:'Considered design',promise2:'Made for your everyday',promise3:'Complimentary shipping $150+',brand:'MERIDIAN',announcement:'Complimentary shipping on orders $150+ · Designed for every moment',title:'Time, exceptionally yours.',subtitle:'Considered watches and essential accessories. Designed to go beyond the everyday.',eyebrow:'PRECISION MEETS PERSONALITY',heroImage:'/assets/hero.svg',accent:'#303c38',translations:{de:{closingTitle:'Jeder Moment gehört Ihnen.',closingText:'Ihr Rhythmus. Ihr Stil.',closingLink:'Ihren nächsten Klassiker entdecken',footer:'Zeit, bewusst gestaltet.',promise1:'Durchdachtes Design',promise2:'Für Ihren Alltag',promise3:'Kostenloser Versand ab $150',announcement:'Kostenloser Versand ab $150 · Für jeden Moment',title:'Zeit. Auf Ihre Art.',subtitle:'Ausgewählte Uhren und unverzichtbare Accessoires. Für mehr als nur den Alltag.',eyebrow:'PRÄZISION TRIFFT PERSÖNLICHKEIT'},es:{closingTitle:'Haz tuyo cada momento.',closingText:'Tu ritmo. Tu estilo.',closingLink:'Descubre tu próximo clásico',footer:'El tiempo, bien pensado.',promise1:'Diseño cuidado',promise2:'Para tu día a día',promise3:'Envío gratuito a partir de $150',announcement:'Envío gratuito a partir de $150 · Para cada momento',title:'El tiempo, a tu manera.',subtitle:'Relojes y accesorios esenciales, elegidos con intención. Más allá de lo cotidiano.',eyebrow:'PRECISIÓN CON PERSONALIDAD'}},categories:[{id:'watches',name:'Watches',de:'Uhren',es:'Relojes'},{id:'straps',name:'Watch straps',de:'Armbänder',es:'Correas'},{id:'storage',name:'Cases & storage',de:'Etuis & Aufbewahrung',es:'Estuches'},{id:'care',name:'Tools & care',de:'Werkzeug & Pflege',es:'Herramientas y cuidado'}],sections:[{id:'intro',type:'text',title:'Every second, considered.',text:'Clean lines. Thoughtful details. Discover watches and accessories that make your time feel like your own.',visible:true,de:{title:'Jede Sekunde zählt.',text:'Klare Linien. Durchdachte Details. Entdecken Sie Uhren und Accessoires für Ihren eigenen Rhythmus.'},es:{title:'Cada segundo cuenta.',text:'Líneas limpias. Detalles cuidados. Descubre relojes y accesorios para vivir a tu propio ritmo.'}},{id:'collection',type:'products',title:'Find your next signature.',text:'The considered collection',visible:true,de:{title:'Finden Sie Ihren Stil.',text:'Die ausgewählte Kollektion'},es:{title:'Encuentra tu próximo clásico.',text:'Una colección con intención'}}],pages:[
  {id:'privacy',title:'Privacy Policy',de:{title:'Datenschutz'},es:{title:'Política de privacidad'},body:`We collect only what we need to fulfil your order: your name, email, phone number, shipping address and order history. Payment details are handled by our payment providers (PayPal) and are never stored on this website.\n\nWe use a single anonymous cookie to count visits and to keep your bag between pages. We do not run advertising trackers and we do not sell your data.\n\nYou can ask us to export or delete your data at any time by emailing us. We keep order records for as long as tax law requires.\n\nContact: [your email address]`},
@@ -605,7 +624,8 @@ const server=http.createServer(async(req,res)=>{
    const pay=getPayment(id);
    return json(res,200,{id:row.id,created:row.created,status:d.status,items:d.items||[],shipping:d.shipping||0,total:d.total,currency:'USD',
     address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''},
-    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),allowed:allowedProviders(paymentConfigFull(),paymentEnv(),PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)),payment:pay?paymentView(pay):null});
+    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),allowed:allowedProviders(paymentConfigFull(),paymentEnv(),PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)),payment:pay?paymentView(pay):null,
+    adminHint:(()=>{try{return auth(req)?paymentGapHint(d.paymentPolicy||null):null;}catch{return null;}})()});
   }
   const paymentRoute=url.pathname.match(/^\/api\/orders\/([^/]+)\/(payment|capture|transaction)$/);
   if(paymentRoute){

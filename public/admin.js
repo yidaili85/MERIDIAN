@@ -522,6 +522,11 @@ async function selfCheck(){
    const label=sh.mode==='percent'?`商品金额 ${sh.percent}%`:sh.mode==='flat'?`固定 $${(sh.flat/100).toFixed(2)}`:sh.mode==='free'?'全部包邮':`满 $${(sh.freeOver/100).toFixed(2)} 免邮，否则 $${(sh.flat/100).toFixed(2)}`;
    rows.push(['前台运费规则',`${label}${sh.freeOver>0?`（满 $${(sh.freeOver/100).toFixed(2)} 免邮）`:''} · 例 $189 → ${sample(189)?'$'+(sample(189)/100).toFixed(2):'免运费'}`]);
   }catch(e){rows.push(['前台运费规则','读取失败 '+e.message]);}
+  try{const ps=await api('/api/admin/payments');const r=ps.readiness,c0=ps.config;
+   rows.push(['PayPal',`${c0.paypalEnabled?'启用':'关闭'} · Client ID ${c0.paypalClientId?'有':'缺'} · Secret ${c0.paypalClientSecretSet?'有':'缺'} · Webhook ${c0.paypalWebhookId?'有':'缺'} · 公网地址 ${r.publicURL?'有':'缺'}`]);
+   rows.push(['USDT',`${c0.usdtEnabled?'启用':'关闭'} · 钱包 ${r.usdtWallet?'有效':'缺/无效'} · ${(c0.usdtNetwork||'').toUpperCase()||'未选网络'}`]);
+   rows.push(['付款规则','普通会员/游客 = PayPal · VIP 会员 = USDT']);
+  }catch(e){rows.push(['支付配置','读取失败 '+e.message]);}
 
   body.innerHTML=rows.map(([k,v])=>`<div class="sc-row"><span>${k}</span><code>${String(v).replace(/</g,'&lt;')}</code></div>`).join('');
 }

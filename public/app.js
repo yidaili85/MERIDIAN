@@ -162,7 +162,7 @@ async function renderPayPage(){
  }
  const allowed=(s.allowed||[]).slice();
  if(!allowed.length){
-  opts.innerHTML=`<p class="payment-review">${t('payUnavailable')}</p>`;
+  opts.innerHTML=`<p class="payment-review">${t('payUnavailable')}</p>`+(s.adminHint?`<p class="admin-hint">${esc(s.adminHint)}</p>`:'');
   act.innerHTML=`<a class="button outline full" href="/account">${t('myOrders')}</a>`;
   return;
  }

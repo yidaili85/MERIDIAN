@@ -324,3 +324,5 @@ body.has-cookie{padding-bottom:92px}
 .copy-mini{font:inherit;font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:none;border:1px solid var(--line,#d8d2c6);color:inherit;border-radius:3px;padding:2px 7px;margin-left:8px;cursor:pointer;vertical-align:middle}
 .copy-mini:hover{background:var(--ink,#111);color:#fff;border-color:var(--ink,#111)}
 .pay-main{padding-bottom:110px}
+
+.admin-hint{margin:10px 0 0;padding:10px 12px;border-left:3px solid #b3261e;background:#fdf3f2;color:#7b1f19;font-size:13px;line-height:1.6}

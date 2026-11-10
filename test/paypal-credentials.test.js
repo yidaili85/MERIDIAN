@@ -59,3 +59,15 @@ test('anonymous callers cannot touch payment credentials',async()=>{
  assert.equal((await fetch(S.base+'/api/admin/payments')).status,401);
  assert.equal((await fetch(S.base+'/api/admin/payments',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)})).status,401);
 });
+
+test('the admin sees why an order cannot be paid, the buyer never does',async()=>{
+ const order=await (await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'G',email:'g@example.com',phone:'+8613800000000',address:'Road 1',city:'Guangzhou',postalCode:'510000',country:'CN',items:[{id:'p1',quantity:1}]})})).json();
+ const url=S.base+'/api/orders/'+encodeURIComponent(order.id)+'/summary';
+ const asBuyer=await (await fetch(url,{headers:{Authorization:'Bearer '+order.accessToken}})).json();
+ assert.equal(asBuyer.adminHint,null);
+ assert.deepEqual(asBuyer.allowed,[]);
+ const cookie=await login();
+ const asAdmin=await (await fetch(url,{headers:{Authorization:'Bearer '+order.accessToken,Cookie:cookie}})).json();
+ assert.match(asAdmin.adminHint,/PayPal/);
+ assert.match(asAdmin.adminHint,/Webhook|Client ID|Secret/);
+});
