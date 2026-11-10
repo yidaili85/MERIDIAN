@@ -123,3 +123,28 @@ test('account hygiene: weak password, duplicate email, wrong password, logout',a
  const invalid=await put('/api/admin/content',{...(await (await fetch(S.base+'/api/admin/content',{headers:{Cookie:admin}})).json()),products:[{id:'p1',name:'x',price:1,stock:1,image:'',category:'watches',description:'',active:true,badge:'',access:'gold'}]},admin);
  assert.equal(invalid.status,400);
 });
+
+test('category level gates everything inside it',async()=>{
+ const draft=await (await fetch(S.base+'/api/admin/content',{headers:{Cookie:admin}})).json();
+ draft.categories.push({id:'vip-room',name:'The Vault',de:'Der Tresor',es:'La Bóveda',access:'vip'});
+ draft.products.find(p=>p.id==='p4').category='vip-room';
+ draft.products.find(p=>p.id==='p4').access='all'; // 商品本身公开，分类锁 VIP
+ await put('/api/admin/content',draft,admin);
+ await post('/api/admin/publish',{},admin);
+
+ const guest=await store();
+ assert.equal(guest.categories.some(c=>c.id==='vip-room'),false);
+ assert.equal(guest.products.some(p=>p.id==='p4'),false);
+ assert.equal((await fetch(S.base+'/api/products/p4')).status,403);
+
+ const vip=await store(vipCookie);
+ assert.equal(vip.categories.some(c=>c.id==='vip-room'),true);
+ const item=vip.products.find(p=>p.id==='p4');
+ assert.equal(item.access,'vip');
+
+ const sitemap=await (await fetch(S.base+'/sitemap.xml')).text();
+ assert.doesNotMatch(sitemap,/product=p4/);
+
+ const bad=structuredClone(draft);bad.categories.find(c=>c.id==='vip-room').access='gold';
+ assert.equal((await put('/api/admin/content',bad,admin)).status,400);
+});

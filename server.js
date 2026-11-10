@@ -17,6 +17,10 @@ db.exec("CREATE TABLE IF NOT EXISTS customers (id TEXT PRIMARY KEY, email TEXT U
 const LEVELS=['normal','vip'];
 const ACCESS_LEVELS=['all','normal','vip'];
 const levelRank={normal:1,vip:2};
+const ACCESS_RANK={all:0,normal:1,vip:2};
+const stricterAccess=(a,b)=>(ACCESS_RANK[a]??0)>=(ACCESS_RANK[b]??0)?(a||'all'):(b||'all');
+const categoryAccessMap=(content_)=>new Map((content_.categories||[]).map(c=>[c.id,ACCESS_LEVELS.includes(c.access)?c.access:'all']));
+const effectiveAccess=(product,map)=>stricterAccess(ACCESS_LEVELS.includes(product.access)?product.access:'all',map.get(product.category)||'all');
 const hashPass=(pw)=>{const salt=randomBytes(16);return salt.toString('hex')+':'+scryptSync(pw,salt,64).toString('hex');};
 const checkPass=(pw,stored)=>{const [saltHex,hashHex]=String(stored||'').split(':');if(!saltHex||!hashHex)return false;try{return timingSafeEqual(scryptSync(pw,Buffer.from(saltHex,'hex'),64),Buffer.from(hashHex,'hex'));}catch{return false;}};
 const canView=(access,viewer)=>{const a=ACCESS_LEVELS.includes(access)?access:'all';if(a==='all')return true;if(!viewer)return false;return (levelRank[viewer.level]||0)>=(levelRank[a]||9);};
@@ -121,6 +125,7 @@ function validate(c){
  const unique=(items)=>items.every(x=>typeof x.id==='string'&&x.id.length>0)&&new Set(items.map(x=>x.id)).size===items.length;
  if(!unique(c.categories)||!unique(c.products)||!unique(c.sections)) throw Error('编号必须唯一且不能为空');
  if(c.categories.some(x=>typeof x.name!=='string'||!x.name.trim())) throw Error('分类名称不能为空');
+ if(c.categories.some(x=>x.access!==undefined&&!ACCESS_LEVELS.includes(x.access))) throw Error('分类观看等级只能是 all / normal / vip');
  if(c.sections.some(x=>!['text','products'].includes(x.type)||typeof x.title!=='string'||typeof x.text!=='string'||typeof x.visible!=='boolean')) throw Error('区块格式错误');
  const image=(s)=>typeof s==='string'&&(s===''||/^https:\/\//i.test(s)||/^\/[^/]/.test(s));
  if(!image(c.heroImage)) throw Error('图片地址须使用 HTTPS 或站内路径');
@@ -161,7 +166,8 @@ function seoHead(url,req){
  const id=url.searchParams.get('product');
  const viewer=customerFromReq(req);
  const found=id?c.products.find(p=>p.id===id&&p.active):null;
- const product=found&&canView(found.access,viewer)?found:null;
+ const seoMap=categoryAccessMap(c);
+ const product=found&&canView(effectiveAccess(found,seoMap),viewer)?found:null;
  const title=product?`${product.name} — ${c.brand}`:`${c.brand} — Watches & Essentials`;
  const desc=String(product?product.description:(c.subtitle||c.announcement||'')).replace(/\s+/g,' ').trim().slice(0,160);
  const canonical=publicBase?publicBase+(product?`/?product=${encodeURIComponent(product.id)}`:'/'):'';
@@ -169,7 +175,7 @@ function seoHead(url,req){
  const gallery=product?[product.image,...(Array.isArray(product.images)?product.images:[])].map(absURL).filter(Boolean):[];
  const ld=product
   ?{'@context':'https://schema.org','@type':'Product',name:product.name,description:product.description,sku:product.id,brand:{'@type':'Brand',name:c.brand},...(gallery.length?{image:gallery}:{}),offers:{'@type':'Offer',price:String(product.price),priceCurrency:'USD',availability:product.stock>0?'https://schema.org/InStock':'https://schema.org/OutOfStock',...(canonical?{url:canonical}:{})}}
-  :{'@context':'https://schema.org','@type':'Store',name:c.brand,description:desc,...(canonical?{url:canonical}:{}),...(image?{image:image}:{}),hasOfferCatalog:{'@type':'OfferCatalog',name:'Collection',itemListElement:c.products.filter(p=>p.active&&canView(p.access,viewer)).map(p=>({'@type':'Offer',price:String(p.price),priceCurrency:'USD',itemOffered:{'@type':'Product',name:p.name}}))}};
+  :{'@context':'https://schema.org','@type':'Store',name:c.brand,description:desc,...(canonical?{url:canonical}:{}),...(image?{image:image}:{}),hasOfferCatalog:{'@type':'OfferCatalog',name:'Collection',itemListElement:c.products.filter(p=>p.active&&canView(effectiveAccess(p,seoMap),viewer)).map(p=>({'@type':'Offer',price:String(p.price),priceCurrency:'USD',itemOffered:{'@type':'Product',name:p.name}}))}};
  return [
   `<meta name="description" content="${esc(desc)}">`,
   `<meta name="robots" content="${url.searchParams.has('preview')||(id&&!product)?'noindex, nofollow':'index, follow'}">`,
@@ -189,7 +195,7 @@ function sitemapXML(){
  if(!publicBase)return '';
  const c=content('published'),last=new Date().toISOString().slice(0,10);
  const urls=[`<url><loc>${publicBase}/</loc><lastmod>${last}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
-  ...c.products.filter(p=>p.active&&(!p.access||p.access==='all')).map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
+  ...c.products.filter(p=>p.active&&effectiveAccess(p,categoryAccessMap(c))==='all').map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
 }
 const server=http.createServer(async(req,res)=>{
@@ -314,7 +320,9 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/store'&&req.method==='GET'){
    const viewer=customerFromReq(req);
    const c=content(url.searchParams.has('preview')&&auth(req)?'draft':'published');
-   c.products=c.products.filter(p=>p.active&&canView(p.access,viewer)).map(p=>({...p,access:ACCESS_LEVELS.includes(p.access)?p.access:'all',locked:false}));
+   const catMap=categoryAccessMap(c);
+   c.products=c.products.filter(p=>p.active&&canView(effectiveAccess(p,catMap),viewer)).map(p=>({...p,access:effectiveAccess(p,catMap),locked:false}));
+   c.categories=(c.categories||[]).filter(x=>canView(catMap.get(x.id),viewer));
    c.viewer=viewer?{email:viewer.email,level:viewer.level,name:viewer.name}:null;
    return json(res,200,c);
   }
@@ -323,7 +331,7 @@ const server=http.createServer(async(req,res)=>{
    const viewer=customerFromReq(req);
    const p=content('published').products.find(x=>x.id===id&&x.active);
    if(!p)return json(res,404,{error:'商品不存在或已下架'});
-   const access=ACCESS_LEVELS.includes(p.access)?p.access:'all';
+   const access=effectiveAccess(p,categoryAccessMap(content('published')));
    if(!canView(access,viewer))return json(res,403,{error:'此商品仅限 VIP 会员浏览',access,loggedIn:Boolean(viewer),level:viewer?.level||null});
    return json(res,200,{...p,access,locked:false});
   }
@@ -332,7 +340,7 @@ const server=http.createServer(async(req,res)=>{
    if(!b.name?.trim()||!b.phone?.trim()||!b.address?.trim()||!Array.isArray(b.items)||!b.items.length||b.items.length>100)return json(res,400,{error:'Please complete your shipping information and select a product'});
    if([b.name,b.phone,b.address].some(x=>typeof x!=='string'||x.length>500))throw Error('Shipping information is too long');
    const c=content('published'),draft=content('draft'),seen=new Set();let total=0;
-   const viewer=customerFromReq(req);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');if(!canView(p.access,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
+   const viewer=customerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');if(!canView(effectiveAccess(p,catMap),viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
    const shipping=total>=15000?0:1200;const details={...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),country:String(b.country||'').slice(0,100),postalCode:String(b.postalCode||'').slice(0,40),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
