@@ -107,6 +107,15 @@ const adminPasswordOk=(pw)=>{const saved=getSetting('admin_password');return sav
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
 if(!db.prepare('SELECT id FROM payment_config WHERE id=1').get())db.prepare('INSERT INTO payment_config VALUES (1,?)').run(JSON.stringify(defaults));
 const paymentConfig=()=>({...defaults,...JSON.parse(db.prepare('SELECT value FROM payment_config WHERE id=1').get().value)});
+const PAY_CRED_DEFAULTS={paypalClientId:'',paypalClientSecret:'',paypalWebhookId:''};
+const paymentConfigFull=()=>({...PAY_CRED_DEFAULTS,...paymentConfig()});
+const paymentEnv=()=>{const c=paymentConfigFull(),e={...process.env};
+ if(c.paypalClientId)e.PAYPAL_CLIENT_ID=c.paypalClientId;
+ if(c.paypalClientSecret)e.PAYPAL_CLIENT_SECRET=c.paypalClientSecret;
+ if(c.paypalWebhookId)e.PAYPAL_WEBHOOK_ID=c.paypalWebhookId;
+ return e;};
+const maskSecret=v=>v?('••••••'+String(v).slice(-4)):'';
+const paymentConfigPublic=()=>{const c=paymentConfigFull();return {...c,paypalClientSecret:'',paypalClientSecretSet:!!c.paypalClientSecret,paypalClientSecretMask:maskSecret(c.paypalClientSecret)};};
 db.exec("CREATE TABLE IF NOT EXISTS shipping_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL)");
 const SHIP_DEFAULTS={mode:'auto',percent:8,flat:1200,freeOver:15000};
 if(!db.prepare('SELECT id FROM shipping_config WHERE id=1').get())db.prepare('INSERT INTO shipping_config VALUES (1,?)').run(JSON.stringify(SHIP_DEFAULTS));
@@ -413,8 +422,8 @@ const server=http.createServer(async(req,res)=>{
    }
    const confirmation=url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/confirm-usdt$/);
    if(confirmation&&req.method==='POST')return await locked(confirmation[1],async()=>{const id=confirmation[1],p=getPayment(id),b=await body(req);if(!p||p.provider!=='usdt')throw Error('No USDT payment found');if(p.status==='paid')return json(res,200,{payment:paymentView(p)});if(b.verified!==true||p.status!=='awaiting_review'||transactionHash(b.transactionId)!==p.submittedHash)throw Error('Verify the submitted transaction before confirming');const used=db.prepare('SELECT order_id FROM payment_receipts WHERE network=? AND tx_hash=?').get(p.network,p.submittedHash);if(used)throw Error('This transaction has already been used for another order');db.exec('BEGIN');try{db.prepare('INSERT INTO payment_receipts VALUES (?,?,?)').run(p.network,p.submittedHash,id);p.status='paid';p.transactionId=p.submittedHash;p.paidAt=new Date().toISOString();p.confirmedBy='admin';putPayment(id,p);const o=getOrder(id);o.details.status='Paid';db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return json(res,200,{payment:paymentView(p)});});
-   if(url.pathname==='/api/admin/payments'&&req.method==='GET')return json(res,200,{config:paymentConfig(),readiness:readiness(paymentConfig(),process.env)});
-   if(url.pathname==='/api/admin/payments'&&req.method==='PUT'){const config=validateConfig(await body(req));db.prepare('UPDATE payment_config SET value=? WHERE id=1').run(JSON.stringify(config));return json(res,200,{config,readiness:readiness(config,process.env)});}
+   if(url.pathname==='/api/admin/payments'&&req.method==='GET')return json(res,200,{config:paymentConfigPublic(),readiness:readiness(paymentConfigFull(),paymentEnv())});
+   if(url.pathname==='/api/admin/payments'&&req.method==='PUT'){const raw=await body(req);const config=validateConfig(raw);const prev=paymentConfigFull();config.paypalClientId=(typeof raw.paypalClientId==='string'?raw.paypalClientId:prev.paypalClientId||'').trim().slice(0,300);config.paypalWebhookId=(typeof raw.paypalWebhookId==='string'?raw.paypalWebhookId:prev.paypalWebhookId||'').trim().slice(0,300);const incomingSecret=typeof raw.paypalClientSecret==='string'?raw.paypalClientSecret.trim():'';config.paypalClientSecret=raw.clearPaypalSecret===true?'':(incomingSecret||prev.paypalClientSecret||'');db.prepare('UPDATE payment_config SET value=? WHERE id=1').run(JSON.stringify({...config,paypalClientSecret:config.paypalClientSecret}));return json(res,200,{config:paymentConfigPublic(),readiness:readiness(paymentConfigFull(),paymentEnv())});}
    if(url.pathname==='/api/admin/content'&&req.method==='GET')return json(res,200,content('draft'));
    if(url.pathname==='/api/admin/content'&&req.method==='PUT'){save('draft',validate(await body(req)));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/publish'&&req.method==='POST'){save('published',validate(content('draft')));return json(res,200,{ok:true});}
@@ -579,9 +588,9 @@ const server=http.createServer(async(req,res)=>{
     return json(res,201,{url:urls[0],urls});
    }
   }
-  if(url.pathname==='/api/payments/methods'&&req.method==='GET')return json(res,200,methods(paymentConfig(),process.env));
+  if(url.pathname==='/api/payments/methods'&&req.method==='GET')return json(res,200,methods(paymentConfigFull(),paymentEnv()));
   if(url.pathname==='/api/payments/paypal/webhook'&&req.method==='POST'){
-   const event=await body(req);await verifyPayPalWebhook(event,req.headers,paymentConfig(),process.env);
+   const event=await body(req);await verifyPayPalWebhook(event,req.headers,paymentConfigFull(),paymentEnv());
    if(event.event_type==='PAYMENT.CAPTURE.COMPLETED'){const providerId=event.resource?.supplementary_data?.related_ids?.order_id;const row=db.prepare("SELECT order_id FROM payments WHERE json_extract(details,'$.provider')='paypal' AND json_extract(details,'$.providerId')=?").get(providerId||'');if(row)await locked(row.order_id,async()=>{const p=getPayment(row.order_id);if(p.status!=='paid'){const transaction=await capturePayPal(p,row.order_id,process.env);if(transaction)markPaid(row.order_id,transaction);}});}
    return json(res,200,{ok:true});
   }
@@ -596,13 +605,13 @@ const server=http.createServer(async(req,res)=>{
    const pay=getPayment(id);
    return json(res,200,{id:row.id,created:row.created,status:d.status,items:d.items||[],shipping:d.shipping||0,total:d.total,currency:'USD',
     address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''},
-    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),allowed:allowedProviders(paymentConfig(),process.env,PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)),payment:pay?paymentView(pay):null});
+    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),allowed:allowedProviders(paymentConfigFull(),paymentEnv(),PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)),payment:pay?paymentView(pay):null});
   }
   const paymentRoute=url.pathname.match(/^\/api\/orders\/([^/]+)\/(payment|capture|transaction)$/);
   if(paymentRoute){
    const id=paymentRoute[1],token=req.headers.authorization?.replace(/^Bearer /,'');const access=db.prepare('SELECT token_hash FROM order_access WHERE order_id=?').get(id);
    if(!token||!access||digest(token)!==access.token_hash)return json(res,403,{error:'Order access denied'});
-   if(req.method==='GET'&&paymentRoute[2]==='payment'){const o=getOrder(id),policy=o.details.paymentPolicy||null;return json(res,200,{id,total:o.details.total,currency:o.details.currency,policy,allowed:allowedProviders(paymentConfig(),process.env,policy),payment:paymentView(getPayment(id))});}
+   if(req.method==='GET'&&paymentRoute[2]==='payment'){const o=getOrder(id),policy=o.details.paymentPolicy||null;return json(res,200,{id,total:o.details.total,currency:o.details.currency,policy,allowed:allowedProviders(paymentConfigFull(),paymentEnv(),policy),payment:paymentView(getPayment(id))});}
    if(req.method==='POST')return await locked(id,async()=>{
     const existing=getPayment(id),o=getOrder(id);
     if(paymentRoute[2]==='transaction'){if(!existing||existing.provider!=='usdt')throw Error('No USDT payment found');if(existing.status==='paid')return json(res,200,{payment:paymentView(existing)});const b=await body(req);existing.submittedHash=transactionHash(b.transactionId);existing.status='awaiting_review';existing.submittedAt=new Date().toISOString();putPayment(id,existing);return json(res,200,{payment:paymentView(existing)});}
@@ -610,10 +619,10 @@ const server=http.createServer(async(req,res)=>{
     if(paymentRoute[2]==='capture'){if(!existing||existing.provider!=='paypal')throw Error('No PayPal checkout found');if(existing.status!=='paid'){const transaction=await capturePayPal(existing,id,process.env);if(transaction)markPaid(id,transaction);}return json(res,200,{payment:paymentView(getPayment(id))});}
     const b=await body(req);if(!['paypal','usdt'].includes(b.provider))throw Error('Unknown payment method');
     if(existing){if(existing.provider!==b.provider)throw Error('This order already has a payment method');return json(res,200,{payment:paymentView(existing)});}
-    if(!methods(paymentConfig(),process.env)[b.provider])throw Error('Payment method is not configured');
+    if(!methods(paymentConfigFull(),paymentEnv())[b.provider])throw Error('Payment method is not configured');
     const policy=o.details.paymentPolicy||null;
-    if(!allowedProviders(paymentConfig(),process.env,policy).includes(b.provider))throw Error(policy==='usdt'?'VIP 商品仅支持 USDT 支付':'该订单仅支持 PayPal 支付');
-    const p=await createCheckout(o,paymentConfig(),process.env,b.provider);putPayment(id,p);return json(res,201,{payment:paymentView(p)});
+    if(!allowedProviders(paymentConfigFull(),paymentEnv(),policy).includes(b.provider))throw Error(policy==='usdt'?'VIP 商品仅支持 USDT 支付':'该订单仅支持 PayPal 支付');
+    const p=await createCheckout(o,paymentConfigFull(),paymentEnv(),b.provider);putPayment(id,p);return json(res,201,{payment:paymentView(p)});
    });
   }
   if(url.pathname==='/api/auth/register'&&req.method==='POST'){
