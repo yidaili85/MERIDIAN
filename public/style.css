@@ -250,3 +250,48 @@ body.has-cookie{padding-bottom:92px}
 .tr-hint{margin:0 0 10px;padding:8px 10px;background:#f6f4ef;border-left:3px solid #26382f;font-size:12.5px;color:#4a4a4a;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .tr-hint .mini{font-size:12px;padding:3px 8px;border:1px solid #cfcabf;background:#fff;border-radius:3px;cursor:pointer}
 .miss-tr{color:#a8452c;font-size:11px;letter-spacing:.02em}
+
+/* 账户页：我的订单 */
+.acct-block{margin:22px 0 18px;border-top:1px solid #e5e1d8;padding-top:16px}
+.acct-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.acct-head h3{margin:0 0 10px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.link-btn{background:none;border:0;padding:0;font:inherit;font-size:12px;letter-spacing:.04em;color:#6b6b6b;text-decoration:underline;cursor:pointer}
+.order-row{display:flex;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #efece5}
+.order-row:last-child{border-bottom:0}
+.order-row strong{display:block;font-size:13px;letter-spacing:.03em}
+.order-row small{display:block;font-size:12px;color:#8a8a8a;margin-top:3px;line-height:1.45}
+.order-right{text-align:right;white-space:nowrap}
+.order-status{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#4a6b57;margin-bottom:4px}
+.auth-panel.acct{max-width:520px}
+
+/* 独立账户页 + 订单详情 */
+.acct-main{padding:56px 0 80px}
+.acct-page{max-width:720px;margin:0 auto;padding:0 20px}
+.acct-page h1{font-size:30px;font-weight:500;letter-spacing:-.01em;margin:6px 0 4px}
+.acct-gate{display:flex;gap:10px;margin-top:22px}
+.acct-gate .button{flex:1}
+.order-item{border-bottom:1px solid #efece5;padding:2px 0}
+.order-item summary{display:flex;justify-content:space-between;gap:14px;padding:14px 0;cursor:pointer;list-style:none}
+.order-item summary::-webkit-details-marker{display:none}
+.oi-main strong{display:block;font-size:13.5px;letter-spacing:.03em}
+.oi-main small{display:block;font-size:12px;color:#8a8a8a;margin-top:3px}
+.oi-side{text-align:right;white-space:nowrap}
+.oi-body{padding:4px 0 18px;font-size:13px}
+.oi-items{list-style:none;margin:0 0 10px;padding:0}
+.oi-items li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed #efece5}
+.oi-line{display:flex;justify-content:space-between;padding:5px 0;color:#5c5c5c}
+.oi-total{border-top:1px solid #e5e1d8;margin-top:6px;padding-top:8px;color:#111;font-weight:600}
+.oi-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:16px}
+.oi-cols h4{margin:0 0 5px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#6b6b6b;font-weight:600}
+.oi-cols p{margin:0 0 12px;line-height:1.55}
+.trk-link{color:#26382f;text-decoration:underline}
+/* 后台物流单号 */
+.trk-box{margin-top:14px;border-top:1px dashed #e0dbd0;padding-top:12px}
+.trk-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.trk-row select,.trk-row input{padding:7px 9px;border:1px solid #cfcabf;background:#fff;font:inherit;font-size:13px}
+.trk-row input{flex:1;min-width:180px}
+@media(max-width:640px){.oi-cols{grid-template-columns:1fr}}
+
+.order-item summary .oi-side::after{content:'＋';display:block;font-size:11px;color:#9a9a9a;margin-top:4px}
+.order-item[open] summary .oi-side::after{content:'－'}
+.order-item .button.full{margin-top:16px}
