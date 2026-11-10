@@ -131,7 +131,16 @@ const salt=randomBytes(16), hash=scryptSync(password,salt,64), sessions=new Map(
 const ADMIN_TTL=Number(process.env.ADMIN_SESSION_HOURS||8)*3600000;
 const ADMIN_REMEMBER=Number(process.env.ADMIN_REMEMBER_DAYS||30)*86400000;
 const whatsappDefaults={enabled:false,phone:'',messages:{en:'Hi! I would like to know more about your watches.',de:'Hallo! Ich möchte mehr über Ihre Uhren erfahren.',es:'¡Hola! Me gustaría saber más sobre sus relojes.'}};
-const content=(field)=>{const c=JSON.parse(db.prepare('SELECT draft,published FROM content WHERE id=1').get()[field]);return{...c,whatsapp:{...whatsappDefaults,...c.whatsapp,messages:{...whatsappDefaults.messages,...c.whatsapp?.messages}}};};
+const content=(field)=>{
+ const raw=JSON.parse(db.prepare('SELECT draft,published FROM content WHERE id=1').get()[field]);
+ const c={...seed,...raw};
+ // 兼容旧库：缺政策页 / 分类 / 商品新字段时补默认值，否则保存会被校验拒绝、政策页 404
+ if(!Array.isArray(c.pages))c.pages=seed.pages;
+ if(!Array.isArray(c.categories))c.categories=seed.categories;
+ c.products=(Array.isArray(c.products)?c.products:[]).map(p=>({...p,badge:typeof p.badge==='string'?p.badge:'',specs:p.specs&&typeof p.specs==='object'&&!Array.isArray(p.specs)?p.specs:{},images:Array.isArray(p.images)&&p.images.length?p.images:(p.image?[p.image]:[]),description:typeof p.description==='string'?p.description:'',active:p.active!==false}));
+ c.whatsapp={...whatsappDefaults,...raw.whatsapp,messages:{...whatsappDefaults.messages,...raw.whatsapp?.messages}};
+ return c;
+};
 const save=(field,value)=>db.prepare(`UPDATE content SET ${field}=? WHERE id=1`).run(JSON.stringify(value));
 // —— 未支付订单过期：释放库存，避免弃单长期占用 ——
 function releaseOrderStock(id,reason){
@@ -219,7 +228,7 @@ function validate(c){
   }
  }
  for(const p of c.products){
-  if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
+  if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||(p.badge!==undefined&&typeof p.badge!=='string')) throw Error('请检查商品名称、分类、价格、库存和图片');
   const cmp=Number(p.compareAt||0);if(cmp&&(!Number.isFinite(cmp)||cmp<=p.price||cmp>1000000)) throw Error('原价必须高于售价；不打折请留空');
   if(p.access!==undefined&&!ACCESS_LEVELS.includes(p.access))throw Error('商品观看等级只能是 all / normal / vip');
   if(p.images!==undefined&&(!Array.isArray(p.images)||p.images.length>8||p.images.some(u=>!image(u)||u==='')))throw Error('图集最多 8 张，且每张须为 HTTPS 或站内路径');
