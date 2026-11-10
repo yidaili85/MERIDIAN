@@ -68,7 +68,7 @@ RELEASE_ID=$(date -u +%Y%m%dT%H%M%S)-$$
 RELEASE=$INSTALL_DIR/releases/$RELEASE_ID
 mkdir "$RELEASE"
 for file in package.json server.js payments.js mailer.js smtp.js countries.js README.md .env.example; do cp -- "$SOURCE_DIR/$file" "$RELEASE/$file"; done
-cp -R -- "$SOURCE_DIR/public" "$SOURCE_DIR/test" "$RELEASE/"
+cp -R -- "$SOURCE_DIR/public" "$SOURCE_DIR/test" "$SOURCE_DIR/scripts" "$RELEASE/"
 NODE=''
 if [[ -x $INSTALL_DIR/runtime/node/bin/node ]] && "$INSTALL_DIR/runtime/node/bin/node" -e 'process.exit(+process.versions.node.split(".")[0] >= 24 ? 0 : 1)' 2>/dev/null; then
   NODE=$INSTALL_DIR/runtime/node/bin/node

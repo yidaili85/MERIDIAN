@@ -16,6 +16,13 @@ owned_pid() {
   printf '%s' "$pid"
 }
 case ${1:-status} in
+  diag)
+    if [[ -f $BASE/current/scripts/diagnose.sh ]]; then
+      MERIDIAN_DIR=$BASE exec bash "$BASE/current/scripts/diagnose.sh"
+    fi
+    printf 'diagnose.sh 不在当前版本里，请先执行 git pull 并重新安装。\n' >&2
+    exit 1
+    ;;
   run)
     cd "$BASE/current"
     export DATA_DIR=$BASE/shared/data
