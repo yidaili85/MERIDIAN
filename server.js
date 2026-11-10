@@ -1,10 +1,15 @@
 import {defaults, digest, readiness, methods, validateConfig, createCheckout, capturePayPal, verifyPayPalWebhook, transactionHash} from './payments.js';
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes, timingSafeEqual, scryptSync } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { resolve, extname } from 'node:path';
+import { randomBytes, timingSafeEqual, scryptSync, createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { resolve, extname, join } from 'node:path';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
+const uploadDir = resolve(dir,'uploads'); mkdirSync(uploadDir,{recursive:true});
+// 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
+const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new URL(process.env.PUBLIC_BASE_URL);return u.protocol==='https:'&&u.pathname==='/'?u.origin:''}catch{return ''}})();
+// 未支付订单保留时长（分钟），0 表示关闭自动释放库存
+const orderTTL=Math.max(0,Number(process.env.ORDER_TTL_MINUTES ?? 30))*60000;
 const db = new DatabaseSync(resolve(dir,'store.sqlite'));
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
@@ -25,6 +30,41 @@ const salt=randomBytes(16), hash=scryptSync(password,salt,64), sessions=new Map(
 const whatsappDefaults={enabled:false,phone:'',messages:{en:'Hi! I would like to know more about your watches.',de:'Hallo! Ich möchte mehr über Ihre Uhren erfahren.',es:'¡Hola! Me gustaría saber más sobre sus relojes.'}};
 const content=(field)=>{const c=JSON.parse(db.prepare('SELECT draft,published FROM content WHERE id=1').get()[field]);return{...c,whatsapp:{...whatsappDefaults,...c.whatsapp,messages:{...whatsappDefaults.messages,...c.whatsapp?.messages}}};};
 const save=(field,value)=>db.prepare(`UPDATE content SET ${field}=? WHERE id=1`).run(JSON.stringify(value));
+// —— 未支付订单过期：释放库存，避免弃单长期占用 ——
+function releaseOrderStock(id,reason){
+ const o=getOrder(id); if(o.details.stockReleased)return false;
+ const c=content('published'),d=content('draft');
+ for(const item of o.details.items||[]){
+  const p=c.products.find(x=>x.id===item.id); if(p)p.stock+=item.quantity;
+  const dp=d.products.find(x=>x.id===item.id); if(dp)dp.stock+=item.quantity;
+ }
+ o.details.status=reason;o.details.stockReleased=true;o.details.expiredAt=new Date().toISOString();
+ db.exec('BEGIN');
+ try{
+  save('published',c);save('draft',d);
+  db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);
+  const p=getPayment(id); if(p&&p.status!=='paid'){p.status='expired';putPayment(id,p);}
+  db.exec('COMMIT');
+ }catch(e){db.exec('ROLLBACK');throw e;}
+ return true;
+}
+function sweepExpiredOrders(){
+ if(!orderTTL)return 0;
+ const cutoff=new Date(Date.now()-orderTTL).toISOString();let released=0;
+ for(const row of db.prepare('SELECT id FROM orders WHERE created<?').all(cutoff)){
+  try{
+   const o=getOrder(row.id);if(o.details.stockReleased||o.details.status==='Paid')continue;
+   const p=getPayment(row.id);
+   // 已提交链上哈希 / 已走 PayPal 的订单不自动释放：买家可能已完成付款
+   if(p&&(p.status==='paid'||p.status==='awaiting_review'||p.submittedHash||p.provider==='paypal'))continue;
+   if(releaseOrderStock(row.id,'Expired — stock released'))released++;
+  }catch{}
+ }
+ return released;
+}
+const sweepInterval=Math.max(200,Number(process.env.SWEEP_INTERVAL_MS||300000));
+setInterval(()=>{try{sweepExpiredOrders()}catch{}} ,sweepInterval).unref();
+try{sweepExpiredOrders()}catch{}
 function validate(c){
  if(!c||typeof c!=='object'||!Array.isArray(c.products)||!Array.isArray(c.categories)||!Array.isArray(c.sections)) throw Error('内容格式错误');
  for(const key of ['brand','announcement','title','subtitle','eyebrow','heroImage','accent']) if(typeof c[key]!=='string') throw Error('页面字段不完整');
@@ -49,14 +89,68 @@ function validate(c){
  return c;
 }
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
-async function body(req){let str='';for await(const chunk of req){str+=chunk;if(Buffer.byteLength(str)>2e6) throw Error('请求过大');}return JSON.parse(str||'{}');}
+async function body(req,limit=2e6){let str='';for await(const chunk of req){str+=chunk;if(Buffer.byteLength(str)>limit) throw Error('请求过大');}return JSON.parse(str||'{}');}
 const auth=(req)=>{const token=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('session='))?.slice(8);return token&&sessions.get(token)>Date.now();};
 const attempts=new Map();
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hostOnly=h=>{const v=String(h||'').split(',')[0].trim().toLowerCase();return /^[a-z0-9.-]+(:\d+)?$/.test(v)?v:''};
+// 反向代理（Nginx/Caddy/1Panel）后 Host 与 X-Forwarded-Host 不一致时，origin 校验会误判 403
+function originAllowed(req){
+ const origin=req.headers.origin; if(!origin)return true;
+ let u; try{u=new URL(origin)}catch{return false}
+ if(!['http:','https:'].includes(u.protocol))return false;
+ if(publicBase&&u.origin===publicBase)return true;
+ const hosts=new Set([hostOnly(req.headers.host),hostOnly(req.headers['x-forwarded-host']),publicBase?new URL(publicBase).host:''].filter(Boolean));
+ return hosts.size>0&&hosts.has(u.host.toLowerCase());
+}
+function securityHeaders(res){
+ res.setHeader('X-Content-Type-Options','nosniff');
+ res.setHeader('X-Frame-Options','DENY');
+ res.setHeader('Referrer-Policy','same-origin');
+ res.setHeader('Permissions-Policy','geolocation=(), microphone=(), camera=(), payment=()');
+ res.setHeader('Cross-Origin-Opener-Policy','same-origin');
+ res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; form-action 'self' https://www.paypal.com https://www.sandbox.paypal.com; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
+ if(publicBase||process.env.COOKIE_SECURE==='true') res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+}
+const absURL=u=>/^https:\/\//i.test(u||'')?u:(publicBase&&u?publicBase+u:'');
+function seoHead(url){
+ const c=content('published');
+ const id=url.searchParams.get('product');
+ const product=id?c.products.find(p=>p.id===id&&p.active):null;
+ const title=product?`${product.name} — ${c.brand}`:`${c.brand} — Watches & Essentials`;
+ const desc=String(product?product.description:(c.subtitle||c.announcement||'')).replace(/\s+/g,' ').trim().slice(0,160);
+ const canonical=publicBase?publicBase+(product?`/?product=${encodeURIComponent(product.id)}`:'/'):'';
+ const image=absURL(product?product.image:c.heroImage);
+ const ld=product
+  ?{'@context':'https://schema.org','@type':'Product',name:product.name,description:product.description,sku:product.id,brand:{'@type':'Brand',name:c.brand},...(image?{image:[image]}:{}),offers:{'@type':'Offer',price:String(product.price),priceCurrency:'USD',availability:product.stock>0?'https://schema.org/InStock':'https://schema.org/OutOfStock',...(canonical?{url:canonical}:{})}}
+  :{'@context':'https://schema.org','@type':'Store',name:c.brand,description:desc,...(canonical?{url:canonical}:{}),...(image?{image:image}:{}),hasOfferCatalog:{'@type':'OfferCatalog',name:'Collection',itemListElement:c.products.filter(p=>p.active).map(p=>({'@type':'Offer',price:String(p.price),priceCurrency:'USD',itemOffered:{'@type':'Product',name:p.name}}))}};
+ return [
+  `<meta name="description" content="${esc(desc)}">`,
+  `<meta name="robots" content="${url.searchParams.has('preview')?'noindex, nofollow':'index, follow'}">`,
+  `<meta property="og:type" content="${product?'product':'website'}">`,
+  `<meta property="og:site_name" content="${esc(c.brand)}">`,
+  `<meta property="og:title" content="${esc(title)}">`,
+  `<meta property="og:description" content="${esc(desc)}">`,
+  image?`<meta property="og:image" content="${esc(image)}">`:'',
+  canonical?`<meta property="og:url" content="${esc(canonical)}">`:'',
+  `<meta name="twitter:card" content="summary_large_image">`,
+  canonical?`<link rel="canonical" href="${esc(canonical)}">`:'',
+  `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g,'\\u003c')}</script>`
+ ].filter(Boolean).join('');
+}
+function renderIndex(url){return readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url)+'</head>');}
+function sitemapXML(){
+ if(!publicBase)return '';
+ const c=content('published'),last=new Date().toISOString().slice(0,10);
+ const urls=[`<url><loc>${publicBase}/</loc><lastmod>${last}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+  ...c.products.filter(p=>p.active).map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
+ return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+}
 const server=http.createServer(async(req,res)=>{
- res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','same-origin');
+ securityHeaders(res);
  const url=new URL(req.url,'http://localhost');
  try{
-  if(req.method!=='GET'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`&&req.headers.origin!==`https://${req.headers.host}`) return json(res,403,{error:'不允许跨站请求'});
+  if(req.method!=='GET'&&req.method!=='HEAD'&&!originAllowed(req)) return json(res,403,{error:'不允许跨站请求'});
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const ip=req.socket.remoteAddress,now=Date.now(),a=attempts.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;} if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});
    const b=await body(req);if(typeof b.password!=='string'||!timingSafeEqual(scryptSync(b.password,salt,64),hash)){a.n++;attempts.set(ip,a);return json(res,401,{error:'密码不正确'});}
@@ -73,6 +167,18 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/admin/content'&&req.method==='PUT'){save('draft',validate(await body(req)));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/publish'&&req.method==='POST'){save('published',validate(content('draft')));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/orders'&&req.method==='GET')return json(res,200,db.prepare('SELECT * FROM orders ORDER BY created DESC').all().map(x=>({...x,details:JSON.parse(x.details),payment:paymentView(getPayment(x.id))})));
+   if(url.pathname==='/api/admin/uploads'&&req.method==='POST'){
+    const b=await body(req,8e6);
+    if(typeof b.data!=='string'||!b.data)throw Error('缺少图片数据');
+    const buf=Buffer.from(b.data.replace(/^data:[^,]*,/,''),'base64');
+    if(!buf.length)throw Error('图片数据无效');
+    if(buf.length>5*1024*1024)throw Error('图片不能超过 5MB');
+    const kind=buf[0]===0x89&&buf.toString('ascii',1,4)==='PNG'?'png':buf[0]===0xff&&buf[1]===0xd8?'jpg':buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP'?'webp':'';
+    if(!kind)throw Error('只支持 PNG / JPEG / WebP 图片');
+    const name=createHash('sha256').update(buf).digest('hex').slice(0,32)+'.'+kind;
+    writeFileSync(join(uploadDir,name),buf);
+    return json(res,201,{url:'/uploads/'+name});
+   }
   }
   if(url.pathname==='/api/payments/methods'&&req.method==='GET')return json(res,200,methods(paymentConfig(),process.env));
   if(url.pathname==='/api/payments/paypal/webhook'&&req.method==='POST'){
@@ -109,8 +215,19 @@ const server=http.createServer(async(req,res)=>{
   }
   if(url.pathname.startsWith('/api/'))return json(res,404,{error:'接口不存在'});
   if(!['GET','HEAD'].includes(req.method))return json(res,405,{error:'不支持此方法'});
+  if(url.pathname==='/robots.txt'){res.setHeader('Content-Type','text/plain; charset=utf-8');res.setHeader('Cache-Control','public, max-age=3600');return res.end(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n${publicBase?`Sitemap: ${publicBase}/sitemap.xml\n`:''}`);}
+  if(url.pathname==='/sitemap.xml'){const xml=sitemapXML();if(!xml){res.writeHead(404);return res.end('Not found');}res.setHeader('Content-Type','application/xml; charset=utf-8');res.setHeader('Cache-Control','public, max-age=3600');return res.end(xml);}
+  const upload=url.pathname.match(/^\/uploads\/([a-f0-9]{32}\.(?:png|jpg|webp))$/);
+  if(upload){
+   const f=resolve(uploadDir,upload[1]);
+   try{if(!statSync(f).isFile())throw Error();}catch{res.writeHead(404);return res.end('Not found');}
+   res.setHeader('Content-Type',upload[1].endsWith('.png')?'image/png':upload[1].endsWith('.jpg')?'image/jpeg':'image/webp');
+   res.setHeader('Cache-Control','public, max-age=31536000, immutable');
+   return res.end(readFileSync(f));
+  }
   const file=url.pathname==='/admin'?'admin.html':url.pathname==='/'?'index.html':url.pathname.slice(1);
   if(!['index.html','admin.html','app.js','admin.js','style.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
+  if(file==='index.html'){res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url));}
   res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);res.end(readFileSync(resolve('public',file)));
  }catch(e){json(res,400,{error:e.message||'请求失败'});}
 });
