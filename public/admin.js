@@ -202,7 +202,7 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
   toast(`已修改 ${selItems.length} 件${cleared?`（${cleared} 件原价低于售价，已清除划线价）`:''}`);
  });
  document.querySelector('#batch-del').onclick=()=>{if(!confirm(`确定删除选中的 ${prodSel.size} 件商品？`))return;content.products=content.products.filter(p=>!prodSel.has(p.id));prodSel.clear();changed();editor();};
- document.querySelector('#new-product').onclick=()=>{if(!content.categories.length)return toast('请先添加商品分类');content.products.unshift({id:crypto.randomUUID(),name:'New product',description:'',price:0,stock:0,image:'',badge:'',category:content.categories[0].id,access:'all',active:false});prodPage=1;changed();editor();};
+ document.querySelector('#new-product').onclick=()=>{if(!content.categories.length)return toast('请先添加商品分类');content.products.unshift({id:crypto.randomUUID(),name:'New product',description:'',price:0,stock:0,image:'',badge:'',category:content.categories[0].id,access:'all',active:true});prodPage=1;changed();editor();toast('已添加，默认上架。填好名称/价格/图片后点「保存并发布」');};
 
  // 行内编辑器绑定
  pageItems.filter(p=>prodOpen.has(p.id)).forEach(p=>{
