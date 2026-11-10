@@ -19,6 +19,17 @@ function start(env){
  });
 }
 
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function waitFor(check,{timeout=8000,interval=100,label='condition'}={}){
+ const deadline=Date.now()+timeout;
+ for(;;){
+  if(await check())return;
+  if(Date.now()>deadline)throw Error('Timed out waiting for '+label);
+  await sleep(interval);
+ }
+}
+const stockOf=async(base,id)=>(await (await fetch(base+'/api/store')).json()).products.find(p=>p.id===id).stock;
+
 const A=await start({PUBLIC_BASE_URL:'https://shop.example.com'});
 const B=await start({ORDER_TTL_MINUTES:'0.02',SWEEP_INTERVAL_MS:'200'});
 after(()=>{A.child.kill();B.child.kill();rmSync(A.dir,{recursive:true,force:true});rmSync(B.dir,{recursive:true,force:true});});
@@ -97,13 +108,13 @@ test('image upload: admin only, magic-byte validation, cacheable serving',async(
 
 test('unpaid orders expire and release stock, but submitted payments are kept',async()=>{
  const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',postalCode:'02108'};
- const before=(await (await fetch(B.base+'/api/store')).json()).products.find(p=>p.id==='p1').stock;
+ const before=await stockOf(B.base,'p1');
  const order=await (await fetch(B.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...customer,items:[{id:'p1',quantity:2}]})})).json();
- assert.equal((await (await fetch(B.base+'/api/store')).json()).products.find(p=>p.id==='p1').stock,before-2);
+ assert.equal(await stockOf(B.base,'p1'),before-2);
 
- await new Promise(r=>setTimeout(r,1200));
- const afterSweep=(await (await fetch(B.base+'/api/store')).json()).products.find(p=>p.id==='p1').stock;
- assert.equal(afterSweep,before);
+ // 过期由后台扫描触发，间隔 200ms、TTL 约 1.2s；轮询等待而不是睡固定时长（慢机器会晚一拍）
+ await waitFor(async()=>await stockOf(B.base,'p1')===before,{timeout:15000,label:'stock released after expiry'});
+ assert.equal(await stockOf(B.base,'p1'),before);
 
  const cookie=await login(B.base);
  const rows=await (await fetch(B.base+'/api/admin/orders',{headers:{Cookie:cookie}})).json();
@@ -114,7 +125,7 @@ test('unpaid orders expire and release stock, but submitted payments are kept',a
  await fetch(B.base+'/api/admin/payments',{method:'PUT',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify({paypalEnabled:false,paypalMode:'sandbox',usdtEnabled:true,usdtNetwork:'erc20',usdtAddress:'0x'+'1'.repeat(40),usdtRate:1})});
  await fetch(B.base+'/api/orders/'+keep.id+'/payment',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+keep.accessToken},body:JSON.stringify({provider:'usdt'})});
  await fetch(B.base+'/api/orders/'+keep.id+'/transaction',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+keep.accessToken},body:JSON.stringify({transactionId:'c'.repeat(64)})});
- await new Promise(r=>setTimeout(r,1200));
+ await sleep(1800); // 超过 TTL，确认扫描不会释放已提交哈希的订单
  const rows2=await (await fetch(B.base+'/api/admin/orders',{headers:{Cookie:cookie}})).json();
  assert.match(rows2.find(x=>x.id===keep.id).details.status,/Awaiting/);
 });
