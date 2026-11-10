@@ -104,3 +104,11 @@
 .buy-now-line{display:flex;justify-content:space-between;border:1px solid var(--line);padding:12px 14px;margin-bottom:16px;font-size:13px}
 .side-home{display:block;margin:-22px 0 22px;padding:9px 12px;border:1px solid #ffffff26;color:#d7dfd5;font-size:11px;letter-spacing:.3px}
 .side-home:hover{background:#ffffff14;color:#fff}
+
+/* 商品搜索 / 批量面板 */
+.prod-search{font-size:12px;padding:8px 10px;min-width:230px;border:1px solid var(--line);background:#fff}
+.prod-bar select.mini{font-size:12px;padding:8px 8px;min-height:34px}
+.batch-panel{padding:20px;margin:0 0 16px;border:1px solid var(--line);background:#fbfcf9}
+.batch-panel h3{margin:0 0 14px;font-size:13px;letter-spacing:.3px}
+.batch-actions{display:flex;gap:10px;margin-top:16px}
+.batch-actions .button{padding:10px 18px;min-height:38px}

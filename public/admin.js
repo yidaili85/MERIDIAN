@@ -1,4 +1,4 @@
-const root=document.querySelector('#admin'),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let content,tab='dashboard',editLang='en',dirty=false,prodPage=1,prodOpen=new Set(),prodSel=new Set();const PROD_PER=10;
+const root=document.querySelector('#admin'),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let content,tab='dashboard',editLang='en',dirty=false,prodPage=1,prodOpen=new Set(),prodSel=new Set(),prodQuery='',prodCat='all',batchOpen=false;const PROD_PER=10;
 async function api(path,options){const r=await fetch(path,options),d=await r.json();if(!r.ok)throw Error(d.error);return d;}
 function toast(s){const t=document.querySelector('#toast');t.textContent=s;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3500);}
 function login(){root.innerHTML=`<div class="login"><a class="logo" href="/">MERIDIAN</a><p class="eyebrow">MERCHANT STUDIO</p><h1>欢迎回到工作室</h1><p>管理商品，打造你的品牌体验。</p><form id="login"><label>管理员密码<input type="password" name="password" required autocomplete="current-password"></label><button class="button full">登录后台 →</button><p class="form-error" role="alert"></p></form><a href="/">← 返回商城</a></div>`;document.querySelector('#login').onsubmit=async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});await load();}catch(err){document.querySelector('.form-error').textContent=err.message;}};}
@@ -68,8 +68,17 @@ async function dashboard(el){
 function editor(){const el=document.querySelector('#editor');if(tab==='dashboard'){dashboard(el);return;}if(tab==='page'){const p=pageData();el.innerHTML=`<section class="panel"><h2>品牌与首页</h2><p class="muted">英文为默认内容，未填写的翻译会显示英文。图片使用 HTTPS 地址；首页图片与品牌设置为三种语言共用。</p><div id="global" class="form-grid">${input('品牌名称','brand',content.brand)}${input('主题色','accent',content.accent,'color')}${input('首页主图 URL','heroImage',content.heroImage)}<label class="check">上传首页主图（PNG/JPG/WebP ≤5MB，建议 1600×1200 以上）<input type="file" accept="image/png,image/jpeg,image/webp" data-hero-upload></label></div><div id="local" class="form-grid">${input('顶部公告','announcement',p.announcement??'')}${input('主视觉眉题','eyebrow',p.eyebrow??'')}${input('首页标题','title',p.title??'')}${area('首页副标题','subtitle',p.subtitle??'')}${input('服务文案 1','promise1',p.promise1??'')}${input('服务文案 2','promise2',p.promise2??'')}${input('服务文案 3','promise3',p.promise3??'')}${input('底部展示标题','closingTitle',p.closingTitle??'')}${area('底部展示文案','closingText',p.closingText??'')}${input('底部链接文字','closingLink',p.closingLink??'')}${input('页脚文案','footer',p.footer??'')}</div></section><section class="panel"><h2>WhatsApp 悬浮联系按钮</h2><p class="muted">按钮固定在前台右下角，滚动时保持可见。填写国际号码并启用后，保存草稿可预览，发布后客户才能看到。</p><div id="whatsapp-global"><label class="check"><input type="checkbox" data-key="enabled" ${content.whatsapp.enabled?'checked':''}>显示 WhatsApp 联系按钮</label>${input('WhatsApp 号码（含国家区号，例如 +44…）','phone',content.whatsapp.phone,'tel')}</div><div id="whatsapp-local">${area('客户打开聊天时的预填消息（当前语言）','message',content.whatsapp.messages[editLang])}</div></section><section class="panel"><div class="panel-heading"><h2>页面区块</h2><div><button id="add-text" class="button outline">＋ 图文区块</button> <button id="add-products" class="button outline" ${content.sections.some(s=>s.type==='products')?'disabled':''}>＋ 商品区块</button></div></div><p class="muted">可编辑区块文案、显示状态与顺序。商品区块最多一个。</p><div id="sections"></div></section>`;const heroUp=document.querySelector('[data-hero-upload]');if(heroUp)heroUp.onchange=async()=>{const f=heroUp.files&&heroUp.files[0];if(!f)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type))return toast('只支持 PNG / JPEG / WebP');if(f.size>5*1024*1024)return toast('图片不能超过 5MB');try{const data=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=()=>rej(Error('读取失败'));fr.readAsDataURL(f);});const r=await fetch('/api/admin/uploads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data})});const j=await r.json();if(!r.ok)throw Error(j.error||'上传失败');content.heroImage=j.url;changed();editor();toast('首页主图已上传');}catch(e){toast(e.message);}};
 bind(document.querySelector('#global'),content);bind(document.querySelector('#local'),p);bind(document.querySelector('#whatsapp-global'),content.whatsapp);document.querySelector('#whatsapp-local textarea').oninput=e=>{content.whatsapp.messages[editLang]=e.target.value;changed();};const list=document.querySelector('#sections');content.sections.forEach((s,i)=>{const d=document.createElement('div');d.className='section-editor';const l=localData(s);d.innerHTML=`<div class="panel-heading"><strong>${s.type==='text'?'文字区块':'商品列表'}</strong><div><button data-up ${i===0?'disabled':''}>↑</button><button data-down ${i===content.sections.length-1?'disabled':''}>↓</button><button data-delete>删除</button></div></div><label class="check"><input data-visible type="checkbox" ${s.visible?'checked':''}>显示区块</label>${input('标题','title',l.title??'')}${area('正文 / 副标题','text',l.text??'')}`;list.append(d);bind(d,l);d.querySelector('[data-visible]').onchange=e=>{s.visible=e.target.checked;changed();};d.querySelector('[data-up]').onclick=()=>{[content.sections[i-1],content.sections[i]]=[s,content.sections[i-1]];changed();editor();};d.querySelector('[data-down]').onclick=()=>{[content.sections[i+1],content.sections[i]]=[s,content.sections[i+1]];changed();editor();};d.querySelectorAll('[data-copy-cat]').forEach(b=>b.onclick=async()=>{const input=b.closest('.link-row').querySelector('input');try{await navigator.clipboard.writeText(input.value);toast('链接已复制');}catch{input.select();document.execCommand('copy');toast('链接已复制');}});d.querySelector('[data-delete]').onclick=()=>{content.sections.splice(i,1);changed();editor();};});const add=type=>{content.sections.push({id:crypto.randomUUID(),type,title:'New section',text:'',visible:true});changed();editor();};document.querySelector('#add-text').onclick=()=>add('text');document.querySelector('#add-products').onclick=()=>add('products');}
  if(tab==='products'){
- const total=content.products.length,pages=Math.max(1,Math.ceil(total/PROD_PER));if(prodPage>pages)prodPage=pages;
- const pageItems=content.products.slice((prodPage-1)*PROD_PER,prodPage*PROD_PER);
+ const q=prodQuery.trim().toLowerCase();
+ const matched=content.products.filter(p=>{
+  if(prodCat!=='all'&&p.category!==prodCat)return false;
+  if(!q)return true;
+  const cat=(content.categories.find(c=>c.id===p.category)||{}).name||'';
+  const hay=[p.name,p.badge,p.id,cat,p.de&&p.de.name,p.es&&p.es.name,String(p.price)].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q);
+ });
+ const total=content.products.length,shown=matched.length,pages=Math.max(1,Math.ceil(shown/PROD_PER));if(prodPage>pages)prodPage=pages;
+ const pageItems=matched.slice((prodPage-1)*PROD_PER,prodPage*PROD_PER);
+ const selItems=content.products.filter(p=>prodSel.has(p.id));
  const catName=id=>(content.categories.find(c=>c.id===id)||{}).name||'—';
  const lvName=p=>({vip:'VIP',normal:'会员'}[p.access]||'公开');
  const priceCell=p=>Number(p.compareAt||0)>Number(p.price)?`<strong>$${Number(p.price).toFixed(2)}</strong><br><s class="muted">$${Number(p.compareAt).toFixed(2)}</s>`:`$${Number(p.price||0).toFixed(2)}`;
@@ -93,9 +102,22 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
  };
  el.innerHTML=`<div class="panel-heading"><p>共 ${total} 件商品，每页 ${PROD_PER} 件。价格以 USD 计价，订单使用服务器核定的价格与库存。</p><button class="button" id="new-product">＋ 添加商品</button></div>
  <div class="prod-bar">
-  <div class="prod-bar-actions"><button class="button outline" id="batch-on" ${prodSel.size?'':'disabled'}>批量上架</button><button class="button outline" id="batch-off" ${prodSel.size?'':'disabled'}>批量下架</button><button class="button outline" id="batch-del" ${prodSel.size?'':'disabled'}>批量删除</button><span class="muted">已选 ${prodSel.size}</span></div>
+  <div class="prod-bar-actions">
+   <input id="prod-search" class="prod-search" type="search" placeholder="搜索名称 / 标签 / 编号 / 分类" value="${esc(prodQuery)}">
+   <select id="prod-cat" class="mini">${`<option value="all">全部分类</option>`+content.categories.map(c=>`<option value="${esc(c.id)}" ${prodCat===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+   <span class="muted">${q||prodCat!=='all'?`筛选出 ${shown} 件 / 共 ${total} 件`:`共 ${total} 件`}</span>
+  </div>
   <div class="prod-bar-actions"><button class="button outline" id="prev-page" ${prodPage<=1?'disabled':''}>← 上一页</button><span class="muted">第 ${prodPage}/${pages} 页</span><button class="button outline" id="next-page" ${prodPage>=pages?'disabled':''}>下一页 →</button></div>
  </div>
+ <div class="prod-bar">
+  <div class="prod-bar-actions"><button class="button outline" id="batch-on" ${prodSel.size?'':'disabled'}>批量上架</button><button class="button outline" id="batch-off" ${prodSel.size?'':'disabled'}>批量下架</button><button class="button outline" id="batch-edit" ${prodSel.size?'':'disabled'}>批量改价 / 权限</button><button class="button outline" id="batch-del" ${prodSel.size?'':'disabled'}>批量删除</button><span class="muted">已选 ${prodSel.size}</span></div>
+ </div>
+ ${batchOpen&&prodSel.size?`<div class="panel batch-panel"><h3>批量修改 ${prodSel.size} 件商品</h3><div class="form-grid">
+   <label>统一售价 USD<input id="batch-price" type="number" min="0" step="0.01" placeholder="留空不改"></label>
+   <label>统一原价 USD<input id="batch-compare" type="number" min="0" step="0.01" placeholder="留空不改，填 0 清除划线价"></label>
+   <label>统一观看权限<select id="batch-access"><option value="">不改</option><option value="all">公开</option><option value="normal">会员</option><option value="vip">VIP</option></select></label>
+   <label>统一上架状态<select id="batch-active"><option value="">不改</option><option value="1">上架</option><option value="0">下架</option></select></label>
+  </div><div class="batch-actions"><button class="button" id="batch-apply">应用到 ${prodSel.size} 件</button><button class="button outline" id="batch-cancel">取消</button></div></div>`:''}
  <div class="panel prod-table-wrap"><table class="prod-table"><thead><tr><th class="c-check"><input type="checkbox" id="check-all" ${pageItems.length&&pageItems.every(p=>prodSel.has(p.id))?'checked':''}></th><th>图片</th><th>名称</th><th>价格</th><th>库存</th><th>分类</th><th>权限</th><th>状态</th><th class="c-ops">操作</th></tr></thead><tbody>
  ${pageItems.map(p=>`<tr class="${prodOpen.has(p.id)?'open':''}">
   <td class="c-check"><input type="checkbox" data-sel="${esc(p.id)}" ${prodSel.has(p.id)?'checked':''}></td>
@@ -108,9 +130,12 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
   <td><button class="pill ${p.active?'on':''}" data-active="${esc(p.id)}">${p.active?'显示中':'已关闭'}</button></td>
   <td class="c-ops"><button class="button outline mini" data-edit="${esc(p.id)}">${prodOpen.has(p.id)?'收起':'编辑'}</button><button class="del" data-del="${esc(p.id)}">删除</button></td>
  </tr>${prodOpen.has(p.id)?editorRow(p):''}`).join('')}
- </tbody></table>${pageItems.length?'':'<p class="muted" style="padding:24px">还没有商品，点右上角「添加商品」。</p>'}</div>`;
+ </tbody></table>${pageItems.length?'':`<p class="muted" style="padding:24px">${q||prodCat!=='all'?'没有符合条件的商品，试试换个关键词或分类。':'还没有商品，点右上角「添加商品」。'}</p>`}</div>`;
 
  const go=n=>{prodPage=Math.max(1,Math.min(pages,n));editor();};
+ const search=document.querySelector('#prod-search');
+ search.oninput=()=>{prodQuery=search.value;prodPage=1;const pos=search.selectionStart;editor();const el2=document.querySelector('#prod-search');if(el2){el2.focus();try{el2.setSelectionRange(pos,pos);}catch{}}};
+ document.querySelector('#prod-cat').onchange=e=>{prodCat=e.target.value;prodPage=1;editor();};
  document.querySelector('#prev-page').onclick=()=>go(prodPage-1);
  document.querySelector('#next-page').onclick=()=>go(prodPage+1);
  document.querySelector('#check-all').onchange=e=>{pageItems.forEach(p=>e.target.checked?prodSel.add(p.id):prodSel.delete(p.id));editor();};
@@ -121,6 +146,28 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const id=b.dataset.del;if(!confirm('确定从草稿删除此商品？'))return;content.products=content.products.filter(x=>x.id!==id);prodSel.delete(id);prodOpen.delete(id);changed();editor();});
  document.querySelector('#batch-on').onclick=()=>{content.products.forEach(p=>{if(prodSel.has(p.id))p.active=true;});changed();editor();};
  document.querySelector('#batch-off').onclick=()=>{content.products.forEach(p=>{if(prodSel.has(p.id))p.active=false;});changed();editor();};
+ document.querySelector('#batch-edit').onclick=()=>{batchOpen=true;editor();};
+ document.querySelector('#batch-cancel')?.addEventListener('click',()=>{batchOpen=false;editor();});
+ document.querySelector('#batch-apply')?.addEventListener('click',()=>{
+  const priceRaw=document.querySelector('#batch-price').value.trim();
+  const cmpRaw=document.querySelector('#batch-compare').value.trim();
+  const access=document.querySelector('#batch-access').value;
+  const active=document.querySelector('#batch-active').value;
+  if(!priceRaw&&!cmpRaw&&!access&&!active)return toast('没有要修改的内容');
+  const price=priceRaw===''?null:Number(priceRaw),cmp=cmpRaw===''?null:Number(cmpRaw);
+  if(price!==null&&(!Number.isFinite(price)||price<0))return toast('售价必须是非负数字');
+  if(cmp!==null&&(!Number.isFinite(cmp)||cmp<0))return toast('原价必须是非负数字');
+  let cleared=0;
+  selItems.forEach(p=>{
+   if(price!==null)p.price=price;
+   if(cmp!==null){if(cmp===0)delete p.compareAt;else p.compareAt=cmp;}
+   if(Number(p.compareAt||0)&&Number(p.compareAt)<=Number(p.price)){delete p.compareAt;cleared++;}
+   if(access)p.access=access;
+   if(active==='1')p.active=true;else if(active==='0')p.active=false;
+  });
+  batchOpen=false;changed();editor();
+  toast(`已修改 ${selItems.length} 件${cleared?`（${cleared} 件原价低于售价，已清除划线价）`:''}`);
+ });
  document.querySelector('#batch-del').onclick=()=>{if(!confirm(`确定删除选中的 ${prodSel.size} 件商品？`))return;content.products=content.products.filter(p=>!prodSel.has(p.id));prodSel.clear();changed();editor();};
  document.querySelector('#new-product').onclick=()=>{if(!content.categories.length)return toast('请先添加商品分类');content.products.unshift({id:crypto.randomUUID(),name:'New product',description:'',price:0,stock:0,image:'',badge:'',category:content.categories[0].id,access:'all',active:false});prodPage=1;changed();editor();};
 
