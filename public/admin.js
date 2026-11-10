@@ -30,7 +30,7 @@ const area=(label,key,value)=>`<label>${label}<textarea data-key="${key}" rows="
 function pageData(){return editLang==='en'?content:(content.translations??={})[editLang]??=(({}));}
 const LANG_LABEL={en:'English',de:'Deutsch',es:'Español'};
 function localData(x){return editLang==='en'?x:(x[editLang]??={});}
-function render(){root.innerHTML=`<aside class="sidebar"><a href="/" class="logo">${esc(content.brand)}</a><p class="eyebrow">MERCHANT STUDIO</p><a href="/" class="side-home" target="_blank" rel="noopener">← 返回商城首页</a>${[['dashboard','▦','数据看板'],['page','◈','页面设计'],['sitemap','◎','站点地图'],['policies','§','政策页面'],['products','▧','商品管理'],['categories','☷','商品分类'],['orders','▤','订单记录'],['payments','◇','支付设置'],['mail','✉','通知邮件'],['customers','◉','用户管理'],['account','⚿','账号安全']].map(([id,icon,label])=>`<button data-tab="${id}" class="${tab===id?'active':''}">${icon}　${label}</button>`).join('')}<a href="/" target="_blank" rel="noopener">查看已发布商城 ↗</a><button id="logout">退出登录</button><p class="side-version" id="side-version"></p></aside><div class="studio"><div class="studio-top"><div><p class="eyebrow">YOUR BRAND, YOUR WAY</p><h1>${{dashboard:'数据看板',page:'页面设计',sitemap:'站点地图',policies:'政策页面',products:'商品管理',categories:'商品分类',orders:'订单记录',payments:'支付设置',mail:'通知邮件',customers:'用户管理',account:'账号安全'}[tab]}</h1><p class="muted">${tab==='dashboard'?'流量、加购、订单与单品浏览量的实时汇总，数据来自本机访问日志与订单库。':tab==='policies'?'隐私政策、服务条款、配送与退换政策。发布后自动出现在前台页脚，并提交到 sitemap。':tab==='sitemap'?'给搜索引擎的站点地图：只收录游客可见的商品，VIP / 会员专属商品不会写入。发布后自动更新。':tab==='orders'?'PayPal 由服务端确认付款；USDT 须人工核对链上记录后确认，买家提交哈希不代表到账。':tab==='mail'?'邮件设置保存后立即生效，不需要发布。':tab==='payments'?'支付设置保存后立即生效，独立于页面草稿。':tab==='account'?'后台密码保存在数据库里，改完立即生效，不需要再 SSH 去 config.env 里找密码。':tab==='customers'?'会员等级修改后立即生效。':'编辑保存在草稿中，发布后才会显示在商城。'}</p></div><div class="actions"><a class="button outline" href="/" target="_blank" rel="noopener">← 商城首页</a>${!['dashboard','payments','orders','mail','customers','sitemap','account'].includes(tab)?`<a class="button outline" href="/?preview=1" target="_blank" rel="noopener">预览已保存草稿 ↗</a><button class="button outline" id="save">保存草稿</button><button class="button" id="publish">保存并发布 ↗</button>`:''}</div></div><div class="studio-toolbar"><span id="save-state">${dirty?'● 有未保存更改':'✓ 草稿已载入'}</span>${!['dashboard','orders','payments','mail','customers','sitemap'].includes(tab)?`<label>编辑内容语言 <select id="edit-lang"><option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option></select></label>`:''}</div><div id="editor"></div></div>`;
+function render(){root.innerHTML=`<aside class="sidebar"><a href="/" class="logo">${esc(content.brand)}</a><p class="eyebrow">MERCHANT STUDIO</p><a href="/" class="side-home" target="_blank" rel="noopener">← 返回商城首页</a>${[['dashboard','▦','数据看板'],['page','◈','页面设计'],['sitemap','◎','站点地图'],['policies','§','政策页面'],['products','▧','商品管理'],['categories','☷','商品分类'],['orders','▤','订单记录'],['payments','◇','支付设置'],['shipping','⛟','运费设置'],['mail','✉','通知邮件'],['customers','◉','用户管理'],['account','⚿','账号安全']].map(([id,icon,label])=>`<button data-tab="${id}" class="${tab===id?'active':''}">${icon}　${label}</button>`).join('')}<a href="/" target="_blank" rel="noopener">查看已发布商城 ↗</a><button id="logout">退出登录</button><p class="side-version" id="side-version"></p></aside><div class="studio"><div class="studio-top"><div><p class="eyebrow">YOUR BRAND, YOUR WAY</p><h1>${{dashboard:'数据看板',page:'页面设计',sitemap:'站点地图',policies:'政策页面',products:'商品管理',categories:'商品分类',orders:'订单记录',payments:'支付设置',shipping:'运费设置',mail:'通知邮件',customers:'用户管理',account:'账号安全'}[tab]}</h1><p class="muted">${tab==='dashboard'?'流量、加购、订单与单品浏览量的实时汇总，数据来自本机访问日志与订单库。':tab==='policies'?'隐私政策、服务条款、配送与退换政策。发布后自动出现在前台页脚，并提交到 sitemap。':tab==='sitemap'?'给搜索引擎的站点地图：只收录游客可见的商品，VIP / 会员专属商品不会写入。发布后自动更新。':tab==='orders'?'PayPal 由服务端确认付款；USDT 须人工核对链上记录后确认，买家提交哈希不代表到账。':tab==='mail'?'邮件设置保存后立即生效，不需要发布。':tab==='payments'?'支付设置保存后立即生效，独立于页面草稿。':tab==='shipping'?'运费规则保存后立即生效；已下单的订单保留当时算出的运费，可以在订单里单独改。':tab==='account'?'后台密码保存在数据库里，改完立即生效，不需要再 SSH 去 config.env 里找密码。':tab==='customers'?'会员等级修改后立即生效。':'编辑保存在草稿中，发布后才会显示在商城。'}</p></div><div class="actions"><a class="button outline" href="/" target="_blank" rel="noopener">← 商城首页</a>${!['dashboard','payments','orders','mail','customers','sitemap','account','shipping'].includes(tab)?`<a class="button outline" href="/?preview=1" target="_blank" rel="noopener">预览已保存草稿 ↗</a><button class="button outline" id="save">保存草稿</button><button class="button" id="publish">保存并发布 ↗</button>`:''}</div></div><div class="studio-toolbar"><span id="save-state">${dirty?'● 有未保存更改':'✓ 草稿已载入'}</span>${!['dashboard','orders','payments','mail','customers','sitemap','shipping'].includes(tab)?`<label>编辑内容语言 <select id="edit-lang"><option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option></select></label>`:''}</div><div id="editor"></div></div>`;
  root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();});document.querySelector('#logout').onclick=async()=>{await api('/api/logout',{method:'POST'});login();};if(document.querySelector('#edit-lang')){document.querySelector('#edit-lang').value=editLang;document.querySelector('#edit-lang').onchange=e=>{editLang=e.target.value;render();};}if(document.querySelector('#save'))document.querySelector('#save').onclick=()=>save(false);if(document.querySelector('#publish'))document.querySelector('#publish').onclick=()=>save(true);editor();}
 function changed(){dirty=true;document.querySelector('#save-state').textContent='● 有未保存更改';}
 async function save(publish){const buttons=[...document.querySelectorAll('#save,#publish')];buttons.forEach(b=>b.disabled=true);try{await api('/api/admin/content',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(content)});if(publish)await api('/api/admin/publish',{method:'POST'});dirty=false;document.querySelector('#save-state').textContent=publish?'✓ 已发布':'✓ 草稿已保存';toast(publish?'已发布，商城内容已更新':'草稿已保存');}catch(e){toast(e.message);}finally{buttons.forEach(b=>b.disabled=false);}}
@@ -359,7 +359,23 @@ if(tab==='categories'){el.innerHTML=`<section class="panel"><div class="panel-he
    catch(e){out.textContent=e.message;}
   };
  }
- if(tab==='orders'){el.innerHTML='<p>正在加载订单…</p>';api('/api/admin/orders').then(orders=>{if(tab!=='orders')return;el.innerHTML=orders.length?orders.map(o=>`<section class="panel"><div class="panel-heading"><h2>${esc(o.id)}</h2><strong>$${o.details.total.toFixed(2)} USD</strong></div><p class="muted">${esc(new Date(o.created).toLocaleString())} · ${esc(o.details.status)}</p><p>${esc(o.details.name)} · ${esc(o.details.email)} · ${esc(o.details.phone)}</p><p>${esc(o.details.address)} · ${esc(o.details.postalCode)} · ${esc(o.details.country)}</p>${o.payment?`<div class="payment-instructions"><p>支付方式：${esc(o.payment.provider.toUpperCase())} · ${esc(o.payment.status)}</p>${o.payment.provider==='usdt'?`<p>网络：${esc(o.payment.network.toUpperCase())} · 应到账 ${esc(o.payment.usdtAmount)} USDT</p><p>钱包：<code>${esc(o.payment.address)}</code></p><p>买家提交：<code>${esc(o.payment.submittedHash||'未提交')}</code></p>${o.payment.status==='awaiting_review'?`<button class="button" data-confirm="${esc(o.id)}" data-hash="${esc(o.payment.submittedHash)}">核实到账并确认收款</button>`:''}`:''}${o.payment.transactionId?`<p>已确认交易：${esc(o.payment.transactionId)}</p>`:''}</div>`:''}${o.details.items.map(i=>`<p>${esc(i.name)} × ${i.quantity} <span class="muted">$${i.price.toFixed(2)}</span></p>`).join('')}<div class="trk-box"><p class="muted">物流单号（填了买家就能在「我的订单」里看到，并可点开承运商官网追踪）</p><div class="trk-row"><select data-trk-carrier>${['','DHL','UPS','USPS','FedEx','Deutsche Post','DPD','Other'].map(c=>`<option value="${c}" ${o.details.tracking&&o.details.tracking.carrier===c?'selected':''}>${c||'选择承运商'}</option>`).join('')}</select><input data-trk-number placeholder="例如 CX123456789DE" value="${esc(o.details.tracking&&o.details.tracking.number||'')}"><button class="button outline" data-save-trk="${esc(o.id)}">保存单号</button></div>${o.details.tracking&&o.details.tracking.number?`<p class="muted">当前：${esc(o.details.tracking.carrier||'—')} · ${esc(o.details.tracking.number)}</p>`:''}</div></section>`).join(''):'<section class="panel empty">暂时还没有订单。</section>';el.querySelectorAll('[data-confirm]').forEach(btn=>btn.onclick=async()=>{if(!confirm('请先在对应网络的区块浏览器中核实：USDT 合约真实、交易成功且达到所需确认数、收款钱包与订单一致、实际到账金额足额，并确认此交易未用于其他订单。确认已全部核实？'))return;btn.disabled=true;try{await api('/api/admin/orders/'+encodeURIComponent(btn.dataset.confirm)+'/confirm-usdt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verified:true,transactionId:btn.dataset.hash})});toast('收款已确认');editor();}catch(e){toast(e.message);btn.disabled=false;}});el.querySelectorAll('[data-save-trk]').forEach(btn=>btn.onclick=async()=>{
+ if(tab==='orders'){el.innerHTML='<p>正在加载订单…</p>';api('/api/admin/orders').then(orders=>{if(tab!=='orders')return;el.innerHTML=orders.length?orders.map(o=>`<section class="panel"><div class="panel-heading"><h2>${esc(o.id)}</h2><strong>$${o.details.total.toFixed(2)} USD</strong></div><p class="muted">${esc(new Date(o.created).toLocaleString())} · ${esc(o.details.status)}</p><p>${esc(o.details.name)} · ${esc(o.details.email)} · ${esc(o.details.phone)}</p><p>${esc(o.details.address)} · ${esc(o.details.postalCode)} · ${esc(o.details.country)}</p>${o.payment?`<div class="payment-instructions"><p>支付方式：${esc(o.payment.provider.toUpperCase())} · ${esc(o.payment.status)}</p>${o.payment.provider==='usdt'?`<p>网络：${esc(o.payment.network.toUpperCase())} · 应到账 ${esc(o.payment.usdtAmount)} USDT</p><p>钱包：<code>${esc(o.payment.address)}</code></p><p>买家提交：<code>${esc(o.payment.submittedHash||'未提交')}</code></p>${o.payment.status==='awaiting_review'?`<button class="button" data-confirm="${esc(o.id)}" data-hash="${esc(o.payment.submittedHash)}">核实到账并确认收款</button>`:''}`:''}${o.payment.transactionId?`<p>已确认交易：${esc(o.payment.transactionId)}</p>`:''}</div>`:''}${o.details.items.map(i=>`<p>${esc(i.name)} × ${i.quantity} <span class="muted">$${i.price.toFixed(2)}</span></p>`).join('')}<div class="trk-box"><p class="muted">运费：商品小计 $${(o.details.items||[]).reduce((n,i)=>n+i.price*i.quantity,0).toFixed(2)} · 当前运费 $${(Number(o.details.shipping||0)/100).toFixed(2)} · 总计 $${Number(o.details.total||0).toFixed(2)}</p><div class="trk-row"><select data-ship-mode data-pct="${o.details.shippingRule?o.details.shippingRule.percent:8}" data-flat="${o.details.shippingRule?(Number(o.details.shippingRule.flat||0)/100):12}"><option value="auto" ${(!o.details.shippingRule||o.details.shippingRule.mode==='auto')?'selected':''}>按默认规则</option><option value="percent" ${o.details.shippingRule&&o.details.shippingRule.mode==='percent'?'selected':''}>商品金额百分比</option><option value="flat" ${o.details.shippingRule&&o.details.shippingRule.mode==='flat'?'selected':''}>固定金额</option><option value="free" ${o.details.shippingRule&&o.details.shippingRule.mode==='free'?'selected':''}>免运费</option></select><input data-ship-value type="number" min="0" step="0.1" value="${o.details.shippingRule&&o.details.shippingRule.mode==='percent'?o.details.shippingRule.percent:(o.details.shippingRule?Number(o.details.shippingRule.flat||0)/100:'')}" placeholder="百分比 % 或 金额 USD"><button class="button outline" data-save-ship="${esc(o.id)}">重算运费</button></div><p class="muted">百分比模式下填数字（如 8 = 8%）；固定金额模式下填 USD（如 12）。</p></div><div class="trk-box"><p class="muted">物流单号（填了买家就能在「我的订单」里看到，并可点开承运商官网追踪）</p><div class="trk-row"><select data-trk-carrier>${['','4PX','AliExpress','YunExpress','DHL','Deutsche Post','DPD','UPS','USPS','FedEx','Other'].map(c=>`<option value="${c}" ${o.details.tracking&&o.details.tracking.carrier===c?'selected':''}>${c||'选择承运商'}</option>`).join('')}</select><input data-trk-number placeholder="例如 CX123456789DE" value="${esc(o.details.tracking&&o.details.tracking.number||'')}"><button class="button outline" data-save-trk="${esc(o.id)}">保存单号</button></div>${o.details.tracking&&o.details.tracking.number?`<p class="muted">当前：${esc(o.details.tracking.carrier||'—')} · ${esc(o.details.tracking.number)}</p>`:''}</div></section>`).join(''):'<section class="panel empty">暂时还没有订单。</section>';el.querySelectorAll('[data-confirm]').forEach(btn=>btn.onclick=async()=>{if(!confirm('请先在对应网络的区块浏览器中核实：USDT 合约真实、交易成功且达到所需确认数、收款钱包与订单一致、实际到账金额足额，并确认此交易未用于其他订单。确认已全部核实？'))return;btn.disabled=true;try{await api('/api/admin/orders/'+encodeURIComponent(btn.dataset.confirm)+'/confirm-usdt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verified:true,transactionId:btn.dataset.hash})});toast('收款已确认');editor();}catch(e){toast(e.message);btn.disabled=false;}});el.querySelectorAll('[data-ship-mode]').forEach(sel=>sel.onchange=()=>{
+  const box=sel.closest('.trk-box'),inp=box.querySelector('[data-ship-value]');
+  if(!inp)return;
+  if(sel.value==='percent'){inp.value=sel.dataset.pct||'';inp.placeholder='百分比 %（如 8）';}
+  else if(sel.value==='flat'){inp.value=sel.dataset.flat||'';inp.placeholder='金额 USD（如 12）';}
+  else {inp.value='';inp.placeholder=sel.value==='free'?'免运费':'按默认规则';}
+ });
+ el.querySelectorAll('[data-save-ship]').forEach(btn=>btn.onclick=async()=>{
+  const box=btn.closest('.trk-box');
+  const mode=box.querySelector('[data-ship-mode]').value;
+  const raw=Number(box.querySelector('[data-ship-value]').value||0);
+  const rule=mode==='percent'?{mode,percent:raw}:mode==='flat'?{mode,flat:Math.round(raw*100)}:{mode};
+  btn.disabled=true;
+  try{await api('/api/admin/orders/'+encodeURIComponent(btn.dataset.saveShip)+'/shipping',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rule})});toast('运费已重算');editor();}
+  catch(e){toast(e.message);btn.disabled=false;}
+ });
+ el.querySelectorAll('[data-save-trk]').forEach(btn=>btn.onclick=async()=>{
   const box=btn.closest('.trk-box');
   const carrier=box.querySelector('[data-trk-carrier]').value;
   const number=box.querySelector('[data-trk-number]').value.trim();
@@ -368,6 +384,7 @@ if(tab==='categories'){el.innerHTML=`<section class="panel"><div class="panel-he
   catch(e){toast(e.message);btn.disabled=false;}
  });}).catch(e=>el.textContent=e.message);}
  if(tab==='payments')paymentEditor(el);
+ if(tab==='shipping')shippingEditor(el);
  if(tab==='account'){
   el.innerHTML=`<section class="panel"><h2>后台密码</h2><p class="muted">密码保存在本机数据库里，改完立即生效。以后忘了密码也不用 SSH 翻 config.env——直接用浏览器改。</p>
   <div id="acct-info" class="muted">正在读取…</div>
@@ -380,6 +397,65 @@ if(tab==='categories'){el.innerHTML=`<section class="panel"><div class="panel-he
 }
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});load();
 
+async function shippingEditor(el){
+ el.innerHTML='<p>正在读取运费设置…</p>';
+ try{
+  const {config}=await api('/api/admin/shipping');
+  el.innerHTML=`<section class="panel"><h2>运费规则</h2>
+  <p class="muted">默认规则用于新订单。已下单的订单保留当时的运费，可在「订单记录」里逐单调整。</p>
+  <div class="grid2">
+   <label>计算方式
+    <select id="ship-mode">
+     <option value="auto" ${config.mode==='auto'?'selected':''}>满额免邮 + 固定运费（旧规则）</option>
+     <option value="percent" ${config.mode==='percent'?'selected':''}>按商品金额百分比</option>
+     <option value="flat" ${config.mode==='flat'?'selected':''}>每单固定运费</option>
+     <option value="free" ${config.mode==='free'?'selected':''}>全部包邮</option>
+    </select>
+   </label>
+   <label>固定运费（USD）<input id="ship-flat" type="number" min="0" step="0.01" value="${(config.flat/100).toFixed(2)}"></label>
+   <label>百分比（%）<input id="ship-percent" type="number" min="0" max="100" step="0.1" value="${config.percent}"></label>
+   <label>免邮门槛（USD，填 0 = 不启用）<input id="ship-freeover" type="number" min="0" step="0.01" value="${(config.freeOver/100).toFixed(2)}"></label>
+  </div>
+  <p class="muted" id="ship-preview"></p><p class="muted" id="ship-warn" style="display:none;color:#a8452c">提醒：首页顶部公告（页面设计 → 公告文案）现在写的是「满 $150 免邮」。改成百分比或固定运费后，记得去那里改这一行，别让客户以为免邮。</p>
+  <button class="button" id="ship-save">保存运费规则</button>
+  </section>`;
+  const read=()=>({mode:el.querySelector('#ship-mode').value,flat:Math.round(Number(el.querySelector('#ship-flat').value||0)*100),percent:Number(el.querySelector('#ship-percent').value||0),freeOver:Math.round(Number(el.querySelector('#ship-freeover').value||0)*100)});
+  const preview=()=>{
+   const c=read();const fmt=n=>'$'+(n/100).toFixed(2);
+   const calc=t=>{const cents=Math.round(t*100);if(c.mode==='free')return 0;if(c.mode==='percent'){if(c.freeOver>0&&cents>=c.freeOver)return 0;return Math.round(cents*c.percent/100);}if(c.mode==='flat'){if(c.freeOver>0&&cents>=c.freeOver)return 0;return c.flat;}return c.freeOver>0&&cents>=c.freeOver?0:c.flat;};
+   const samples=[50,189,300].map(t=>`订单 ${fmt(t*100)} → 运费 ${calc(t)?fmt(calc(t)):'免运费'}`);
+   el.querySelector('#ship-preview').innerHTML=samples.join(' ｜ ')+(c.mode==='percent'?`<br>例：商品总额 $189 按 ${c.percent}% 收 ${fmt(Math.round(18900*c.percent/100))}`:'');
+  };
+  ['#ship-mode','#ship-flat','#ship-percent','#ship-freeover'].forEach(s=>{const n=el.querySelector(s);if(n)n.oninput=preview;if(n)n.onchange=preview;});
+  preview();
+  const warn=el.querySelector('#ship-warn');
+  const fields={mode:el.querySelector('#ship-mode'),flat:el.querySelector('#ship-flat'),percent:el.querySelector('#ship-percent'),freeOver:el.querySelector('#ship-freeover')};
+  const syncFields=()=>{
+   const m=fields.mode.value;
+   const set=(node,on)=>{if(!node)return;node.disabled=!on;node.style.opacity=on?'1':'0.45';node.style.background=on?'#fff':'#f2f0ea';};
+   set(fields.percent,m==='percent');
+   set(fields.flat,m==='flat'||m==='auto');
+   set(fields.freeOver,m!=='free');
+   if(warn){
+    const fo=Number(fields.freeOver.value||0);
+    const freeText=fo>0?`当前免邮门槛 $${fo.toFixed(2)}`:'当前不设免邮门槛（任何订单都收运费）';
+    if(m==='free'){warn.style.display='none';}
+    else{
+     warn.style.display='block';
+     warn.innerHTML=`提醒：首页顶部公告（页面设计 → 公告文案）写的是「满 $150 免邮」，但${freeText}。${fo===0?'客户会以为免邮却仍被收运费，务必去改那行公告，或在免邮门槛里填 150。':'若与公告不一致，请去那一行同步文案。'}`;
+    }
+   }
+  };
+  el.querySelector('#ship-mode').onchange=()=>{preview();syncFields();};
+  el.querySelector('#ship-freeover').oninput=()=>{preview();syncFields();};
+  syncFields();
+  el.querySelector('#ship-save').onclick=async e=>{
+   e.target.disabled=true;
+   try{const r=await api('/api/admin/shipping',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(read())});toast('运费规则已保存');shippingEditor(el);}
+   catch(err){toast(err.message);e.target.disabled=false;}
+  };
+ }catch(e){el.textContent=e.message;}
+}
 async function paymentEditor(el){el.innerHTML='<p>正在读取支付配置…</p>';try{const state=await api('/api/admin/payments');if(tab!=='payments')return;const c=state.config,r=state.readiness;el.innerHTML=`<form id="payment-settings"><section class="panel"><h2>PayPal 官方收银台</h2><label class="check"><input name="paypalEnabled" type="checkbox" ${c.paypalEnabled?'checked':''}>启用 PayPal</label><label>运行环境<select name="paypalMode"><option value="sandbox">Sandbox 测试环境</option><option value="live">Live 正式环境</option></select></label><p class="muted">通过服务端环境变量安全注入 PAYPAL_CLIENT_ID、PAYPAL_CLIENT_SECRET、PAYPAL_WEBHOOK_ID 和 PUBLIC_BASE_URL；密钥不在页面输入、展示或保存到内容草稿。</p><ul><li>客户端 ID 与密钥：${r.paypalCredentials?'已注入（尚不代表授权验证通过）':'未配置'}</li><li>Webhook ID：${r.paypalWebhook?'已注入':'未配置'}</li><li>公开 HTTPS 网站地址：${r.publicURL?'已配置':'未配置'}</li></ul><p class="muted">Webhook 地址：你的 HTTPS 域名 + /api/payments/paypal/webhook；订阅 PAYMENT.CAPTURE.COMPLETED。切换 Sandbox / Live 时需同步替换对应环境的凭证和 Webhook ID。</p></section><section class="panel"><h2>USDT 钱包直收 · 人工核账</h2><label class="check"><input name="usdtEnabled" type="checkbox" ${c.usdtEnabled?'checked':''}>启用 USDT</label><div class="form-grid"><label>收款网络<select name="usdtNetwork"><option value="trc20">TRC20 — Tron</option><option value="erc20">ERC20 — Ethereum</option></select></label><label>报价比例（1 USD 对应多少 USDT）<input name="usdtRate" type="number" min="0.000001" max="100" step="0.000001" required value="${esc(c.usdtRate)}"></label></div><label>收款钱包地址<input name="usdtAddress" value="${esc(c.usdtAddress)}" spellcheck="false" autocomplete="off"></label><p class="muted">仅填写公开收款地址，绝不填写助记词或私钥。报价比例由商家设置，不是实时市场汇率；每张支付单固定保存创建时的钱包、网络和金额，后续修改设置不影响旧支付单。</p><p class="muted">买家提交交易哈希后，请在订单记录中人工核实真实 USDT 合约、网络、收款地址、实际到账金额和确认数，再确认收款。后台不会自动验证链上到账。错误网络或地址可能造成资金损失。</p></section><button class="button">保存支付设置</button><p class="form-error" role="alert"></p></form>`;const form=document.querySelector('#payment-settings');form.elements.paypalMode.value=c.paypalMode;form.elements.usdtNetwork.value=c.usdtNetwork;form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('button');btn.disabled=true;try{await api('/api/admin/payments',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({paypalEnabled:form.elements.paypalEnabled.checked,paypalMode:form.elements.paypalMode.value,usdtEnabled:form.elements.usdtEnabled.checked,usdtNetwork:form.elements.usdtNetwork.value,usdtAddress:form.elements.usdtAddress.value.trim(),usdtRate:Number(form.elements.usdtRate.value)})});toast('支付设置已保存，立即生效');}catch(err){form.querySelector('.form-error').textContent=err.message;}finally{btn.disabled=false;}};}catch(e){el.textContent=e.message;}}
 
 // ---------- 前后端版本一致性检查 ----------

@@ -107,6 +107,27 @@ const adminPasswordOk=(pw)=>{const saved=getSetting('admin_password');return sav
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
 if(!db.prepare('SELECT id FROM payment_config WHERE id=1').get())db.prepare('INSERT INTO payment_config VALUES (1,?)').run(JSON.stringify(defaults));
 const paymentConfig=()=>({...defaults,...JSON.parse(db.prepare('SELECT value FROM payment_config WHERE id=1').get().value)});
+db.exec("CREATE TABLE IF NOT EXISTS shipping_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL)");
+const SHIP_DEFAULTS={mode:'auto',percent:8,flat:1200,freeOver:15000};
+if(!db.prepare('SELECT id FROM shipping_config WHERE id=1').get())db.prepare('INSERT INTO shipping_config VALUES (1,?)').run(JSON.stringify(SHIP_DEFAULTS));
+const shippingConfig=()=>{try{return {...SHIP_DEFAULTS,...JSON.parse(db.prepare('SELECT value FROM shipping_config WHERE id=1').get().value)};}catch{return {...SHIP_DEFAULTS};}};
+const SHIP_MODES=['auto','percent','flat','free'];
+const cleanShipping=(raw)=>{
+ const c={...SHIP_DEFAULTS,...(raw||{})};
+ const mode=SHIP_MODES.includes(c.mode)?c.mode:'auto';
+ const percent=Math.min(100,Math.max(0,Number(c.percent)||0));
+ const flat=Math.min(500000,Math.max(0,Math.round(Number(c.flat)||0)));
+ const freeOver=Math.min(5000000,Math.max(0,Math.round(Number(c.freeOver)||0)));
+ return {mode,percent:Math.round(percent*100)/100,flat,freeOver};
+};
+const shippingCents=(itemsCents,cfg)=>{
+ const c=cleanShipping(cfg||shippingConfig());
+ if(c.mode==='free')return 0;
+ if(c.freeOver>0&&itemsCents>=c.freeOver&&c.mode!=='percent')return 0;
+ if(c.mode==='percent'){if(c.freeOver>0&&itemsCents>=c.freeOver)return 0;return Math.round(itemsCents*c.percent/100);}
+ return c.flat;
+};
+
 const getPayment=id=>{const row=db.prepare('SELECT details FROM payments WHERE order_id=?').get(id);return row?JSON.parse(row.details):null;};
 const getOrder=id=>{const row=db.prepare('SELECT * FROM orders WHERE id=?').get(id);if(!row)throw Error('Order not found');return {...row,details:JSON.parse(row.details)};};
 const putPayment=(id,p)=>db.prepare('INSERT INTO payments VALUES (?,?) ON CONFLICT(order_id) DO UPDATE SET details=excluded.details').run(id,JSON.stringify(p));
@@ -384,7 +405,31 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/admin/content'&&req.method==='GET')return json(res,200,content('draft'));
    if(url.pathname==='/api/admin/content'&&req.method==='PUT'){save('draft',validate(await body(req)));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/publish'&&req.method==='POST'){save('published',validate(content('draft')));return json(res,200,{ok:true});}
-   const trk=url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/tracking$/);
+   if(url.pathname==='/api/admin/shipping'&&(req.method==='GET'||req.method==='PUT')){
+   if(!auth(req))return json(res,401,{error:'未登录'});
+   if(req.method==='GET')return json(res,200,{config:cleanShipping(shippingConfig()),modes:SHIP_MODES});
+   const cfg=cleanShipping(await body(req));
+   db.prepare('UPDATE shipping_config SET value=? WHERE id=1').run(JSON.stringify(cfg));
+   return json(res,200,{ok:true,config:cfg});
+  }
+  const shipRoute=url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/shipping$/);
+  if(shipRoute&&req.method==='POST'){
+   if(!auth(req))return json(res,401,{error:'未登录'});
+   const id=decodeURIComponent(shipRoute[1]);
+   const row=db.prepare('SELECT details FROM orders WHERE id=?').get(id);
+   if(!row)return json(res,404,{error:'订单不存在'});
+   const d=JSON.parse(row.details)||{};
+   const pay=getPayment(id);
+   if(pay&&['paid','paid_manual'].includes(String(pay.status||'')))return json(res,400,{error:'该订单已付款，改运费会导致金额不一致。请先退款或新建订单。'});
+   const b=await body(req);
+   const rule=cleanShipping({...cleanShipping(d.shippingRule||shippingConfig()),...(b.rule||b)});
+   const itemsCents=Math.round((d.items||[]).reduce((n,i)=>n+(Number(i.price)||0)*(Number(i.quantity)||0),0)*100);
+   const shipping=shippingCents(itemsCents,rule);
+   d.shippingRule=rule;d.shipping=shipping;d.total=Math.round(itemsCents+shipping)/100;
+   db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(d),id);
+   return json(res,200,{ok:true,shipping:shipping/100,total:d.total,rule});
+  }
+  const trk=url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/tracking$/);
   if(trk&&req.method==='POST'){
    if(!auth(req))return json(res,401,{error:'未登录'});
    const id=decodeURIComponent(trk[1]);
@@ -594,6 +639,7 @@ const server=http.createServer(async(req,res)=>{
    const realViewer=customerFromReq(req);
    c.viewer=realViewer?{email:realViewer.email,level:realViewer.level,name:realViewer.name}:null;
    c.adminView=Boolean(auth(req));
+   c.shipping=cleanShipping(shippingConfig());
    c.countries=COUNTRIES.map(({code,name,postal,states})=>({code,name,pattern:postal?postal.source:'',states:states?stateList(code).map(([sc,sn])=>({code:sc,name:sn})):null}));
    c.contactEmail=process.env.ORDER_NOTIFY_EMAIL||'';
    return json(res,200,c);
@@ -657,7 +703,7 @@ const server=http.createServer(async(req,res)=>{
    if([b.name,b.phone,b.address].some(x=>typeof x!=='string'||x.length>500))throw Error('Shipping information is too long');
    const c=content('published'),draft=content('draft'),seen=new Set();let total=0,hasVipItem=false;
    const viewer=viewerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');const itemAccess=effectiveAccess(p,catMap);if(!canView(itemAccess,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');if(itemAccess==='vip')hasVipItem=true;seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
-   const shipping=total>=15000?0:1200;const details={...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:(hasVipItem?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',city:String(b.city||'').slice(0,80),state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
+   const shipRule=cleanShipping(shippingConfig());const shipping=shippingCents(total,shipRule);const details={shippingRule:shipRule,...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:(hasVipItem?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',city:String(b.city||'').slice(0,80),state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
   }
