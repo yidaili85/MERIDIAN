@@ -192,6 +192,7 @@ function validate(c){
  if(c.sections.some(x=>!['text','products'].includes(x.type)||typeof x.title!=='string'||typeof x.text!=='string'||typeof x.visible!=='boolean')) throw Error('区块格式错误');
  const image=(s)=>typeof s==='string'&&(s===''||/^https:\/\//i.test(s)||/^\/[^/]/.test(s));
  if(!image(c.heroImage)) throw Error('图片地址须使用 HTTPS 或站内路径');
+ if(c.favicon!==undefined&&c.favicon!==''&&!image(c.favicon)) throw Error('站点图标须为 HTTPS 或站内路径');
  for(const p of c.products){
   if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
   const cmp=Number(p.compareAt||0);if(cmp&&(!Number.isFinite(cmp)||cmp<=p.price||cmp>1000000)) throw Error('原价必须高于售价；不打折请留空');
@@ -250,6 +251,9 @@ function seoHead(url,req){
   image?`<meta property="og:image" content="${esc(image)}">`:'',
   canonical?`<meta property="og:url" content="${esc(canonical)}">`:'',
   `<meta name="twitter:card" content="summary_large_image">`,
+  `<link rel="icon" href="${esc(c.favicon||'/assets/favicon.svg')}">`,
+  `<link rel="apple-touch-icon" href="${esc(c.favicon||'/assets/favicon.svg')}">`,
+  `<meta name="theme-color" content="${esc(c.accent||'#26382f')}">`,
   canonical?`<link rel="canonical" href="${esc(canonical)}">`:'',
   `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g,'\\u003c')}</script>`
  ].filter(Boolean).join('');
@@ -377,7 +381,15 @@ const server=http.createServer(async(req,res)=>{
     await mailInst.send({to:b.to,subject:'[测试] '+msg.subject,html:msg.html,text:msg.text});
     return json(res,200,{ok:true});
    }
-   if(url.pathname==='/api/admin/uploads'&&req.method==='POST'){
+   if(url.pathname==='/api/admin/sitemap'&&req.method==='GET'){
+   if(!auth(req))return json(res,401,{error:'未登录'});
+   const c=content('published'),map=categoryAccessMap(c);
+   const pub=c.products.filter(p=>p.active&&effectiveAccess(p,map)==='all');
+   const hidden=c.products.filter(p=>p.active&&effectiveAccess(p,map)!=='all');
+   const xml=sitemapXML();
+   return json(res,200,{url:publicBase?publicBase+'/sitemap.xml':'',count:publicBase?pub.length+1:0,products:pub.map(p=>({id:p.id,name:p.name})),excluded:hidden.length,xml});
+  }
+  if(url.pathname==='/api/admin/uploads'&&req.method==='POST'){
     const b=await body(req,24e6);
     const list=Array.isArray(b.files)?b.files:(typeof b.data==='string'?[b.data]:[]);
     if(!list.length)throw Error('缺少图片数据');
@@ -510,7 +522,7 @@ const server=http.createServer(async(req,res)=>{
    return res.end(readFileSync(f));
   }
   const file=url.pathname==='/admin'?'admin.html':url.pathname==='/'?'index.html':url.pathname.slice(1);
-  if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
+  if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg','assets/favicon.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
   if(file==='index.html'){
    if(req.method==='GET'){try{const vid=visitorId(req,res);trackEvent('page',{vid,source:sourceOf(req)});}catch{}}
    res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url,req));
