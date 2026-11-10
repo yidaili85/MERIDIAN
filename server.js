@@ -279,7 +279,11 @@ function seoHead(url,req){
   `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g,'\\u003c')}</script>`
  ].filter(Boolean).join('');
 }
-function renderIndex(url,req){return readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+'</head>');}
+const ASSET_FILES=['style.css','theme-tandorio.css','fonts.css','app.js','admin.js'];
+let assetVersion='';
+function assetV(){if(assetVersion)return assetVersion;try{assetVersion=ASSET_FILES.map(f=>Math.floor(statSync(resolve('public',f)).mtimeMs).toString(36)).join('').slice(0,10);}catch{assetVersion='1';}return assetVersion;}
+function withAssets(html){const v=assetV();return html.replace(/(href|src)="\/([a-z0-9.-]+\.(?:css|js))"/gi,(m,attr,f)=>`${attr}="/${f}?v=${v}"`);}
+function renderIndex(url,req){return withAssets(readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+'</head>'));}
 const escHtml=(x)=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const policyList=()=>(content('published').pages||[]).filter(p=>p&&p.id);
 function policyExists(name){return policyList().some(p=>p.id===name);}
@@ -597,7 +601,13 @@ const server=http.createServer(async(req,res)=>{
    if(req.method==='GET'){try{const vid=visitorId(req,res);trackEvent('page',{vid,source:sourceOf(req)});}catch{}}
    res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url,req));
   }
-  res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);res.end(readFileSync(resolve('public',file)));
+  const abs=resolve('public',file),st=statSync(abs);
+  const etag='"'+st.size.toString(16)+'-'+Math.floor(st.mtimeMs).toString(16)+'"';
+  res.setHeader('Cache-Control','no-cache');res.setHeader('ETag',etag);
+  if(req.headers['if-none-match']===etag){res.writeHead(304);return res.end();}
+  res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);
+  const payload=readFileSync(abs);
+  return res.end(file.endsWith('.html')?withAssets(payload.toString('utf8')):payload);
  }catch(e){json(res,400,{error:e.message||'请求失败'});}
 });
 server.listen(Number(process.env.PORT||3000),process.env.HOST||'0.0.0.0',()=>console.log('MERIDIAN 商城已启动，端口 '+(process.env.PORT||3000)));

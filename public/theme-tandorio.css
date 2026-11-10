@@ -85,8 +85,8 @@ a:hover{color:var(--red)}
   position:relative;margin:0;min-height:min(62vh,560px);display:flex;align-items:center;
   overflow:hidden;background:#0d0d0d;
 }
-.hero>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.95)}
-.hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,#000000cc 0%,#0000007a 45%,#0000001f 100%)}
+.hero>img{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;object-fit:cover;filter:saturate(.95)}
+.hero-shade{position:absolute;top:0;right:0;bottom:0;left:0;background:linear-gradient(90deg,#000000cc 0%,#0000007a 45%,#0000001f 100%)}
 .hero-copy{position:relative;z-index:2;padding:56px 5% 64px;max-width:660px;color:#fff}
 .hero .eyebrow{color:#ffffffb0;font-size:11px;letter-spacing:.34em;margin-bottom:18px}
 .hero h1{font-family:var(--sans);font-weight:300;font-size:clamp(40px,5vw,64px);line-height:1.06;margin:0 0 20px;color:#fff}
@@ -226,7 +226,7 @@ form label input,form label textarea{display:block;width:100%;margin-top:6px;tex
 .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
 
 dialog.lightbox{
-  position:fixed;inset:0;width:100%;height:100%;max-width:100%;max-height:100%;margin:0;padding:0;
+  position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;max-width:100%;max-height:100%;margin:0;padding:0;
   border:0;border-radius:0;background:#0b0b0bf2;color:#fff;
   display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;
 }
@@ -314,4 +314,17 @@ footer{display:block;padding:0;background:var(--soft);border-top:1px solid var(-
   .closing h2{font-size:32px}
   footer{flex-direction:column;gap:18px;font-size:10px}
   .detail{grid-template-columns:1fr}
+}
+
+/* ---------- 兜底：不支持 aspect-ratio / flex gap 的旧浏览器（如旧版 Edge） ---------- */
+@supports not (aspect-ratio: 4 / 5){
+ .product-image,.detail-main,.detail-main img,.detail>img,.product-form>img,.editor-row .product-form>img{aspect-ratio:auto}
+ .product-image,.detail-main{height:0;padding-bottom:125%;position:relative;display:block}
+ .product-image img,.detail-main img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+ .detail>img{width:100%;height:auto}
+ .product-form>img,.editor-row .product-form>img{height:180px;width:100%;object-fit:cover}
+}
+@supports not (gap: 1px){
+ .products>*, .tabs button, .footer-nav a, .footer-nav button{margin:0 8px 8px 0}
+ .nav-tools>*{margin-left:10px}
 }
