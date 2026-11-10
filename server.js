@@ -209,6 +209,7 @@ const server=http.createServer(async(req,res)=>{
  securityHeaders(res);
  const url=new URL(req.url,'http://localhost');
  try{
+  if(url.pathname==='/healthz')return json(res,200,{ok:true,uptime:Math.round(process.uptime())});
   if(req.method!=='GET'&&req.method!=='HEAD'&&!originAllowed(req)) return json(res,403,{error:'不允许跨站请求'});
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const ip=req.socket.remoteAddress,now=Date.now(),a=attempts.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;} if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});

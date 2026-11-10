@@ -1,146 +1,213 @@
 # MERIDIAN — watches & essentials
 
-面向欧美客户的手表与配件商城首版。英文默认，支持 Deutsch / Español；商家后台使用中文，支持分别编辑三种语言的内容。
+面向欧美客户的手表与配件独立站。前台英文默认，支持 Deutsch / Español；后台中文，可分别编辑三种语言内容。Node.js 24+，**零第三方运行依赖**，SQLite 单文件存储。
 
-## 一键安装到 Linux 服务器
+---
 
-支持 **Linux x86_64 / arm64**，推荐 Debian 12+ 或 Ubuntu 22.04+（glibc）。请用普通部署用户运行，脚本不会以 root 启动网站，也不会修改系统 Node.js。
+## 1. 功能一览
 
-当前 GitHub 仓库为私有仓库。先确保服务器上的 Git/SSH 账号有该仓库的读取权限，然后执行：
+**前台**：响应式首页、分类、搜索、价格排序、商品详情、购物袋、EN/DE/ES 切换、USD 计价、商品图集 + 全屏放大（滚轮缩放 / 左右切换 / ESC）、WhatsApp 悬浮客服、页脚支付图标。
+
+**后台 `/admin`**：页面设计（品牌、主视觉、公告、服务文案、页脚、三语言）、商品增删改 / 库存 / 多语言 / 多图上传、分类管理、订单记录、支付设置、用户管理（普通 / VIP）、通知邮件测试。
+
+**会员与可见性**：商品和分类都带观看等级（公开 / 登录会员 / VIP），未获授权的商品**不进列表、不进 sitemap**，只能通过后台复制的 `/?product=<id>` 或 `/?category=<id>` 链接直达；直链按等级放行，未授权返回 403 且不泄露名称 / 图片 / 价格、页面 noindex。加购与下单服务端二次校验。
+
+**支付**：PayPal 官方收银台 + USDT 钱包直收人工核账。默认规则：普通订单只能 PayPal，含 VIP 商品的订单只能 USDT（`PAYMENT_RULES=off` 可关闭）。
+
+**其他**：下单确认邮件、未支付订单超时返库、草稿 / 预览 / 发布、SEO（canonical / Open Graph / JSON-LD / robots / sitemap）、CSP / HSTS 等安全响应头、登录限速、scrypt 密码哈希。
+
+---
+
+## 2. 快速开始
+
+### 方式 A：Docker（推荐，最快）
 
 ```bash
-git clone git@github.com:yidaili85/yidaili85.git meridian-store && bash meridian-store/install.sh
+git clone -b feature/hardening-seo https://github.com/yidaili85/MERIDIAN.git meridian-store
+cd meridian-store
+bash scripts/quickstart-docker.sh
 ```
 
-如果使用已经登录的 HTTPS Git 凭证，也可以执行：
+脚本会：生成 `.env`（含随机管理员密码）→ 构建镜像 → 后台启动 → 等 `/healthz` 通过 → 打印地址。
+
+- 前台 http://127.0.0.1:3000/
+- 后台 http://127.0.0.1:3000/admin
+- 密码 `grep ADMIN_PASSWORD .env`
+
+手动等价命令：
 
 ```bash
-git clone https://github.com/yidaili85/yidaili85.git meridian-store && bash meridian-store/install.sh
+cp .env.example .env          # 填 ADMIN_PASSWORD
+docker compose up -d --build
+docker compose logs -f meridian
+docker compose down           # 停止；数据在 meridian-data 卷里，不会丢
 ```
 
-私有仓库不适用匿名 `curl raw.githubusercontent.com/... | bash`。不要把访问令牌写进安装命令或发送到聊天。
+数据卷位置：`docker volume inspect meridian-store_meridian-data`。备份 = 导出该卷（或 `docker compose exec meridian` 里打包 `/data`）。
 
-基础命令缺失时，在 Debian/Ubuntu 安装：
+### 方式 B：源码直跑（不用 Docker）
+
+需要 Node.js **24+**（`node -v` 确认，需带 `node:sqlite`），**无需 `npm install`**。
 
 ```bash
-sudo apt-get update && sudo apt-get install -y ca-certificates curl git tar xz-utils coreutils
+git clone -b feature/hardening-seo https://github.com/yidaili85/MERIDIAN.git meridian-store
+cd meridian-store
+bash scripts/quickstart-local.sh
+```
+
+脚本生成 `.env` 后以 `node --env-file=.env server.js` 前台启动，`Ctrl-C` 停止。数据默认在 `./data`（SQLite + `uploads/`）。
+
+### 方式 C：Linux 服务器一键安装（长期运行）
+
+支持 Linux x86_64 / arm64，推荐 Debian 12+ / Ubuntu 22.04+（glibc）。用普通部署用户运行，脚本不会以 root 启动网站，也不改系统 Node。
+
+```bash
+git clone -b feature/hardening-seo git@github.com:yidaili85/MERIDIAN.git meridian-store
+bash meridian-store/install.sh
 ```
 
 脚本会：
 
-1. 使用现有 Node.js 24+，或从 Node.js 官方站点安装独立 Node 24，并核对官方 SHA256 校验值。
-2. 复制网站程序到独立版本目录，运行项目测试；不复制源码目录中的 `.env` 或 `data/`。
-3. 首次生成固定管理员密码，写入仅当前用户可读的配置文件；后续安装保留配置和数据库。
-4. 后台启动服务，检查真实 HTTP 接口是否可用。启动失败时保留数据，并尝试恢复上一版本代码。代码回滚不等于数据库回滚；未来如有不兼容数据库迁移，升级前应先备份。
-
-默认安装位置：`~/.local/share/meridian`。默认仅监听 `127.0.0.1:3000`，后台路径 `/admin`。在服务器本地查看配置中的 `ADMIN_PASSWORD` 登录；密码不会显示在安装日志。
+1. 用现有 Node 24+，或安装独立 Node 24（核对官方 SHA256）。
+2. 复制程序到独立版本目录并跑测试；不复制源码里的 `.env` 或 `data/`。
+3. 首次生成管理员密码写入 `shared/config.env`（600 权限，不打印，保留不覆盖）。
+4. 后台启动并检查真实 HTTP 接口；失败保留数据并回滚到上一版本代码。
 
 ```bash
-# 自定义安装位置，或只安装不启动
-bash meridian-store/install.sh --dir /home/deploy/meridian
-bash meridian-store/install.sh --no-start
-
-# 管理服务
-~/.local/share/meridian/bin/meridian status
-~/.local/share/meridian/bin/meridian restart
-~/.local/share/meridian/bin/meridian stop
-~/.local/share/meridian/bin/meridian logs
-
-# 拉取 GitHub 最新代码，再次安装；保留商品、订单和管理员密码
-git -C meridian-store pull --ff-only && bash meridian-store/install.sh
+~/.local/share/meridian/bin/meridian {status|restart|stop|logs}
+bash install.sh --dir /home/deploy/meridian   # 自定义位置
+bash install.sh --no-start                    # 只装不启动
+git -C meridian-store pull --ff-only && bash meridian-store/install.sh   # 升级
 ```
 
-目录结构：`current` 指向当前程序版本，`releases/` 保留各版本代码，`shared/data/` 保存 SQLite 数据，`shared/config.env` 保存配置，`shared/server.log` 保存日志。修改配置后执行 `meridian restart`。配置由 Node 的 `--env-file` 读取，不要用 `source` 执行；如密码包含 `#` 等字符，请遵循 Node `.env` 引号规则。
+默认目录 `~/.local/share/meridian`：`current`（当前版本软链）、`releases/`、`shared/data/`（数据库）、`shared/config.env`（配置）、`shared/server.log`（日志）。配置由 `--env-file` 读取，**不要 `source`**。改配置后 `meridian restart`。
 
-后台进程在 SSH 断开后继续运行，但默认不注册开机服务。如需重启服务器后自动启动，可用该用户的 `crontab -e` 添加（路径替换为自己的真实绝对路径）：
+开机自启（`crontab -e`，路径换真实绝对路径）：
 
 ```cron
 @reboot /home/deploy/.local/share/meridian/bin/meridian start
 ```
 
-公网使用前，请自行配置域名和 Nginx/Caddy HTTPS 反向代理到 `127.0.0.1:3000`，并在 `shared/config.env` 设置 `PUBLIC_BASE_URL` 和 `COOKIE_SECURE=true`。脚本不改防火墙、不申请证书，不会自动启用或填入 PayPal/USDT 收款资料；支付配置见下文。
+私有仓库不适用匿名 `curl raw.githubusercontent.com/... | bash`；不要把访问令牌写进安装命令或发到聊天。
 
-## 启动
+---
 
-从项目源码直接运行时需要 Node.js 24+，无第三方运行依赖。
+## 3. 首次登录与上手顺序
 
-```sh
-npm start
+1. 打开 `/admin`，输入 `ADMIN_PASSWORD`（`.env` 或 `shared/config.env`）。会话 8 小时过期；未设置密码时每次启动生成临时密码，只打印在启动日志。
+2. 后台 → 页面设计：品牌名、主视觉、公告、服务文案、WhatsApp 号码（带国家区号，启用后生效）、页脚内容。
+3. 后台 → 商品分类：建分类；需要锁定的选「观看等级」，可复制**分类链接**。
+4. 后台 → 商品管理：加商品、传图（PNG/JPEG/WebP ≤5MB）、价格库存、观看等级；编辑页可复制**商品链接**。
+5. 保存**草稿** → 授权预览 → **发布**。前台只显示已发布内容。
+
+---
+
+## 4. 配置项
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `ADMIN_PASSWORD` | 随机临时密码（仅打印在启动日志） | 后台密码，**务必固定** |
+| `HOST` / `PORT` | `127.0.0.1` / `3000` | 容器内用 `0.0.0.0:3000` |
+| `DATA_DIR` | `./data` | SQLite 与上传图片；容器内 `/data` |
+| `COOKIE_SECURE` | `false` | HTTPS 部署置 `true` |
+| `PUBLIC_BASE_URL` | 空 | 正式 HTTPS 根域名；启用 canonical / sitemap / 支付回跳 |
+| `PAYMENT_RULES` | `on` | `off` 关闭「VIP=USDT、其他=PayPal」规则 |
+| `ORDER_TTL_MINUTES` | `30` | 未支付订单过期返库分钟数，`0` 关闭 |
+| `SWEEP_INTERVAL_MS` | `300000` | 过期扫描间隔 |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_WEBHOOK_ID` | 空 | 三项齐全才启用 PayPal |
+| `MAIL_PROVIDER` / `MAIL_API_KEY` / `MAIL_FROM` / `MAIL_FROM_NAME` / `MAIL_API_URL` | resend / 空 | 下单邮件（可选） |
+| `ORDER_NOTIFY_EMAIL` | 空 | 店主抄送，逗号分隔 |
+| `WHATSAPP_NUMBER` | 空 | 邮件里显示的客服号 |
+
+模板见 `.env.example`。密钥只放环境变量或 `.env`，不要进 Git。
+
+---
+
+## 5. 会员、等级与链接
+
+- 前台可注册 / 登录（邮箱 + 密码，scrypt 加盐，30 天会话）；新用户默认**普通用户**。
+- 后台 → 用户管理：搜索用户，下拉改 **普通用户 / VIP 用户**，立即生效。
+- 商品观看等级：`all` 公开 / `normal` 登录会员 / `vip` VIP 专属。
+- 分类观看等级同理；**商品有效等级 = 商品与所属分类中更严格的一档**——把整类商品放进 VIP 分类即可整类锁定。
+- 无权用户：列表、导航、筛选、接口、sitemap 全部不下发该商品 / 分类。
+- 授权访问靠链接直达：商品 `/?product=<id>`、类目 `/?category=<id>`，后台编辑页一键复制。
+
+自测流程：注册一个账号 → 后台把它设为 VIP → 用该账号打开 VIP 商品或类目链接 → 对比未登录时的效果。
+
+---
+
+## 6. PayPal 对接
+
+1. PayPal Developer 创建 REST App（Sandbox 或 Live），注入 `PAYPAL_CLIENT_ID`、`PAYPAL_CLIENT_SECRET`；不要写入前端、Git 或聊天。
+2. 设置 `PUBLIC_BASE_URL=https://你的域名`（HTTPS 根域名，不带路径），配好反代，`COOKIE_SECURE=true`。
+3. 该 App 注册 Webhook `https://你的域名/api/payments/paypal/webhook`，订阅 `PAYMENT.CAPTURE.COMPLETED`，把 Webhook ID 填进 `PAYPAL_WEBHOOK_ID`。
+4. 后台 → 支付设置：选 Sandbox，启用 PayPal。前台只有配置齐全才显示该方式；「已注入」只代表变量存在，不代表商户鉴权通过。
+5. 用沙箱买家走完整流程；上线时整体替换为 Live 凭证、Webhook ID 与后台环境选项。不要在有未完成支付时更换凭证。
+
+服务端按已保存金额创建 PayPal Order，浏览器跳官方收银台；回跳或签名验证通过的回调到达后，服务端查询 / 捕获并核对商户订单引用、实际扣款金额与 USD 币种，只有真实扣款才标记 Paid，重复回跳与回调幂等。创建与捕获使用固定幂等键。官方文档：[Orders v2](https://developer.paypal.com/docs/api/orders/v2/)、[Webhook 验签](https://developer.paypal.com/docs/api/webhooks/v1/#verify-webhook-signature_post)。
+
+当前使用 `NO_SHIPPING`，收货资料保存在本地订单；未接入 PayPal 地址映射与卖家保障资格处理。
+
+---
+
+## 7. USDT 直收与人工核账
+
+后台 → 支付设置：选 **TRC20** 或 **ERC20**，填公开收款地址与 `1 USD = ? USDT` 比例后启用。不需要私钥，也不查询链上到账。TRC20 校验 Base58Check、ERC20 校验基本格式，均不证明地址归属。
+
+每笔支付快照当时的网络、地址、六位小数应付金额与比例，之后改配置不影响已创建的支付单。报价是商家设定的固定比例，非市场实时汇率。状态：
+
+- `pending`：等待转账
+- `awaiting_review`：买家已提交哈希，尚未确认（可更正）
+- `paid`：管理员核实后确认，记录时间与哈希
+
+管理员必须在区块浏览器核对真实 USDT 合约、地址、金额、成功状态与确认数。**提交哈希不等于到账**；同一网络同一哈希只能确认一个订单。合并小额、超付、退款、错链错币需商家自行处理。私钥与助记词不应进入网站。
+
+订单访问令牌只存在创建订单标签页的 `sessionStorage`，不出现在回跳 URL。关掉标签页后暂无邮件恢复链接。
+
+---
+
+## 8. 部署与安全
+
+- 服务只监听 `127.0.0.1`，公网请用 Nginx / Caddy 反代到 `127.0.0.1:3000` 并配 HTTPS；`HOST=0.0.0.0` 只在容器内使用。
+- 后台建议再加一层：Basic Auth + IP 白名单，或只走 VPN。
+- 备份：停止服务后打包 `DATA_DIR`（SQLite + `uploads/`），或用 SQLite 在线备份。
+- 已有措施：CSP、HSTS（HTTPS 时）、`X-Frame-Options`、`Permissions-Policy`、同源 CSRF 校验（兼容反代）、登录限速、scrypt 哈希、订单访问令牌。
+
+---
+
+## 9. 测试
+
+```bash
+npm test                                      # 26 条集成测试
+docker compose run --rm meridian npm test     # 容器内跑
+curl -s http://127.0.0.1:3000/healthz         # 健康检查
 ```
 
-前台 `/`，后台 `/admin`，默认端口 3000。未设置 `ADMIN_PASSWORD` 时，每次启动会生成临时管理员密码并仅输出在服务终端；固定密码请通过环境变量注入，不要提交密码。会话八小时过期，重启需重新登录。
+覆盖：服务端核价与库存事务、授权与草稿隔离、发布、图片上传、邮件、PayPal 模拟接口（金额 / 幂等 / 验签失败）、USDT 快照与人工确认、会员等级、分类等级、支付方式规则、静态与 SEO 输出。全部使用临时数据库与虚拟交易，不接触真实资金。
 
-可用环境变量：`PORT`、`HOST`、`DATA_DIR`（默认 `./data`）、`ADMIN_PASSWORD`、`COOKIE_SECURE=true`（HTTPS 部署时启用）、`PUBLIC_BASE_URL`（设置后启用 canonical、Open Graph、`sitemap.xml` 与 robots 中的 Sitemap 行）、`ORDER_TTL_MINUTES`（未支付订单自动过期并返库的分钟数，默认 30，设为 0 关闭）、`SWEEP_INTERVAL_MS`（过期扫描间隔，默认 300000）。邮件通知（可选）：`MAIL_PROVIDER`（resend/postmark/sendgrid/generic，默认 resend）、`MAIL_API_KEY`、`MAIL_FROM`、`MAIL_FROM_NAME`、`MAIL_API_URL`（generic 必填）、`ORDER_NOTIFY_EMAIL`（店主副本，逗号分隔）、`WHATSAPP_NUMBER`（邮件里显示的客服号）。数据库为 SQLite，自动初始化，重启保留数据；备份整个 data 目录前应停止服务或使用 SQLite 备份机制。上传的商品图片保存在 `DATA_DIR/uploads`，需随数据库一起备份。
+---
 
-## 功能
+## 10. 目录结构
 
-- 响应式商城、EN/DE/ES 切换、分类、搜索、价格排序、详情、购物袋。
-- 美元计价，支持国际地址、邮件和邮编；服务端核价、库存校验与事务扣减。
-- 后台商品新增/修改/删除/上下架、库存、分类及多语言描述。
-- 首页主图、主题色、品牌、公告、主视觉、服务文案、底部内容及三语言编辑。
-- 内容区块增删、排序、隐藏；当前支持文字和商品列表两种区块，不是任意 HTML/布局的自由画布。
-- 草稿保存、授权预览、手动发布；前台仅显示已发布内容。
-- 订单记录、PayPal 官方收银台、USDT 钱包直收与人工核账，后台查看买家信息、支付状态及交易哈希。
-- 未支付订单超时自动过期并释放库存（PayPal 待支付与已提交哈希的订单不自动过期，避免误返库）。
-- SEO：服务端注入 description/Open Graph/Twitter Card/canonical/JSON-LD（首页 Store、商品 Product），提供 `robots.txt` 与 `sitemap.xml`，`?product=<id>` 可直接打开商品详情。
-- 后台支持上传商品图片（PNG/JPEG/WebP，≤5MB，按内容哈希命名，长缓存）。
-- 安全响应头：CSP、HSTS（HTTPS 时）、X-Frame-Options、Permissions-Policy；CSRF 同源校验兼容反向代理（`X-Forwarded-Host`/`PUBLIC_BASE_URL`）。
-- 商品支持主图 + 图集（最多 8 张），后台上传/设为主图/移除，前台缩略图切换，点击主图全屏放大（滚轮缩放、左右切换、ESC 关闭）。
-- 客户下单后立即发送订单确认邮件（HTML + 纯文本，含明细、合计、收货信息与付款入口）；邮件失败不影响下单，状态记录在订单 `details.mail`，后台「通知邮件」可发测试信。
-- 页脚展示 WhatsApp 实时沟通入口与支付方式图标（仅显示已启用的 PayPal / 卡组织 / USDT）。
-- 会员账户：前台注册/登录（邮箱 + 密码，scrypt 加盐，30 天会话），后台「用户管理」可把用户设为普通或 VIP，立即生效。
-- 支付方式规则（默认开启）：订单里只要含 VIP 等级商品，该订单**只能 USDT 支付**；其余订单（游客/普通会员）**只能 PayPal 支付**。规则在下单时快照到订单上，服务端在创建付款时二次校验，前端只渲染允许的方式；混单（含 VIP 商品）整单按 USDT。设 `PAYMENT_RULES=off` 可关闭该规则、恢复「有哪个用哪个」。
-- 分类观看等级：分类同样有 `access`（`all`/`normal`/`vip`），商品的有效等级 = 商品自身等级与所属分类等级中**更严格**的一档。把整类商品放进 VIP 分类即可整类锁定，无需逐个设置。
-- 商品观看等级：`access` = `all`（公开）/ `normal`（登录会员）/ `vip`（VIP 专属）。未达等级的商品**完全不出现在列表**（列表接口只返回有权商品），只能通过后台「商品链接」复制出的 `/?product=<id>` 直达；直链按等级放行，未授权时返回 403 并只显示通用提示（不泄露名称/图片/价格），页面返回 noindex；加购与下单同样按等级拦截，`sitemap.xml` 只列公开商品。无权分类不出现在导航与筛选中，`/?category=<id>` 可直接打开类目，后台分类编辑里可复制该类目链接。
-
-## 验证
-
-```sh
-npm test
+```
+server.js               HTTP 服务、路由、内容模型、SEO、静态资源
+payments.js             PayPal / USDT 实现
+mailer.js               下单邮件（resend / postmark / sendgrid / generic）
+public/                 前台 app.js + theme-tandorio.css；后台 admin.js + style.css
+test/                   node:test 集成测试
+scripts/meridian.sh     服务器安装后的进程管理
+scripts/quickstart-docker.sh   Docker 一键启动
+scripts/quickstart-local.sh    源码直跑一键启动
+install.sh              Linux 一键安装（版本目录 + 回滚）
+Dockerfile / docker-compose.yml / .dockerignore
+.env.example            配置模板
 ```
 
-集成测试使用临时数据库和本机端口，验证授权、草稿隔离、翻译数据、发布、库存、服务器核价、订单记录、跨站保护及静态页面。
+---
 
-## 上线前需要完成
+## 11. 已知边界
 
-本项目是可运行的商城 MVP。默认运费 $12、满 $150 免运费仅为演示配置。当前金额不含目的地税费和进口关税；正式收款前应根据业务完善 VAT/销售税、关税和配送限制策略，并替换示例商品及图片。
-
-## WhatsApp 悬浮联系按钮
-
-后台 → 页面设计，填写带国家区号的 WhatsApp 号码并启用。可按 English / Deutsch / Español 分别编辑聊天预填消息。保存草稿后预览，发布后才在前台显示；默认未配置号码时不显示按钮。
-
-按钮固定在屏幕右下角，随页面滚动保持可见。桌面显示联系标签，手机显示圆形图标；点击在新标签打开 WhatsApp，不会自动替客户发送消息。不加载 WhatsApp 第三方脚本。号码会出现在公开前台，请填写商家客服号码。
-
-## PayPal 对接
-
-1. 在 PayPal Developer 创建对应 Sandbox 或 Live REST App，通过部署平台的服务端秘密管理功能注入 `PAYPAL_CLIENT_ID`、`PAYPAL_CLIENT_SECRET`；不要写入前端、Git 或聊天。
-2. 设置 `PUBLIC_BASE_URL=https://你的域名`（仅 HTTPS 根域名，不带路径），配置 HTTPS 反向代理，并启用 `COOKIE_SECURE=true`。
-3. 在该 PayPal App 注册 `https://你的域名/api/payments/paypal/webhook`，订阅 `PAYMENT.CAPTURE.COMPLETED`，将对应 Webhook ID 注入 `PAYPAL_WEBHOOK_ID`。
-4. 后台 → 支付设置，选择 Sandbox，启用 PayPal。前台只有在必要配置齐全时才显示该方式；“已注入”仅表示变量存在，不证明商户鉴权成功。
-5. 用沙箱买家完成测试。上线时一起替换 Live 凭证、Webhook ID 和后台环境选项；不要在有未完成支付时更换应用凭证。
-
-支付过程：先创建本地订单和专属访问令牌，再由服务端按已保存金额创建 PayPal Order，浏览器跳转到官方收银台。买家返回或签名验证成功的回调到达后，服务端查询/捕获订单并核对商户订单引用、实际扣款金额与 USD 币种，只有完成扣款才标记 Paid。重复返回或回调不会重复更新到账。遇到网络超时，可在原标签页点击“继续支付 / 刷新状态”；PayPal 创建与捕获使用固定幂等键。当前库存按创建订单扣减；未支付订单不会自动到期返库。
-
-官方接口参考：[Orders v2](https://developer.paypal.com/docs/api/orders/v2/)、[验证 Webhook 签名](https://developer.paypal.com/docs/api/webhooks/v1/#verify-webhook-signature_post)。当前使用 `NO_SHIPPING`，商城收货资料保存在本地订单中；尚未接入 PayPal 收货地址映射或卖家保障资格处理，正式卖家保障需求需单独完善。
-
-## USDT 钱包直收与人工核账
-
-后台 → 支付设置，选择 **TRC20（Tron）** 或 **ERC20（Ethereum）**，填写公开收款地址及 `1 USD = ? USDT` 报价比例后启用。不需要第三方支付服务或钱包私钥。TRC20 检查 Base58Check，ERC20 检查基本地址格式，均不证明地址归属；商家须自行确认地址正确。
-
-每笔支付固定记录当时的网络、钱包、六位小数 USDT 应付金额和报价比例，后续修改配置不改变已创建支付单。报价为商家设置的固定比例，非市场实时汇率。买家自行转账、承担链上手续费，并提交交易哈希：
-
-- `pending`：等待转账。
-- `awaiting_review`：买家已提交哈希，尚未确认到账；可更正哈希。
-- `paid`：管理员在订单记录中核实后确认，记录确认时间与交易哈希。
-
-管理员必须在相应链的区块浏览器核实真实 USDT 合约、收款地址、实际金额、成功状态和足够确认数。**后台不会自动查询链上到账，也不会把哈希提交当成支付成功。** 同一网络的同一交易哈希只能确认到一个订单；重复确认同一订单保持幂等。多笔小额合并、超付、退款、错误网络或错误代币需商家另行处理。
-
-支付配置立即生效且独立于页面草稿发布。缺省两种支付均关闭。钱包地址及网络可在后台设置；私钥与助记词不应进入网站。未开启任何支付方式时，仍可保留订单供商家联系确认。
-
-订单访问令牌只保存在创建订单的浏览器标签页 `sessionStorage`，不出现在支付回跳 URL 中。保留原标签页用于返回与查看支付状态；关闭标签页后尚无邮件恢复链接功能。升级前的历史订单没有访问令牌，不能直接走新增自助支付流程。PayPal 退款/争议同步、自动返库、邮件通知和多币种换汇尚未实现。
-
-## 验证范围
-
-`npm test` 包含安装/重复升级/数据保留测试、真实本机 HTTP/SQLite 集成测试和 PayPal 模拟接口测试，覆盖配置、金额、授权、验签失败、钱包快照、人工确认与交易重复使用防护。另已用本机 Chromium 验证后台支付配置、三语言结账、USDT 哈希提交、管理员确认和前台状态更新。所有测试使用隔离数据与虚拟交易；未配置真实 PayPal 凭证、未调用真实商户收款、未发生链上转账。真实 Sandbox / Live 联调仍需商户环境配置。
-
-默认图片为项目内置 SVG 示意图，使用系统字体，无第三方图片或字体加载依赖。
+- 可运行 MVP；默认运费（$12 / 满 $150 免运费）与示例商品是演示数据，需替换。
+- 金额不含目的地税费与关税，正式收款前需完善 VAT / 销售税与配送策略。
+- 尚未实现：优惠券、多币种结算、PayPal 退款 / 争议同步、自动查链上到账、邮件恢复订单链接、购物车跨会话持久化、邀请码注册。
+- 未配置支付时订单仍可创建，但前台不显示对应方式；`/healthz` 只代表进程存活，不代表支付就绪。

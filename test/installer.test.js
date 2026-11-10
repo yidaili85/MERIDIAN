@@ -14,7 +14,7 @@ test('installer starts HTTP service, preserves config/orders on reinstall and st
  const temp=mkdtempSync(join(tmpdir(),'meridian-install-test-')),base=join(temp,'installation'),input=join(temp,'source');let manager;
  try{
   // Model the clean application checkout to avoid copying local customer data.
-  mkdirSync(input);for(const f of ['install.sh','package.json','server.js','payments.js','mailer.js','README.md'])copyFileSync(join(source,f),join(input,f));
+  mkdirSync(input);for(const f of ['install.sh','package.json','server.js','payments.js','mailer.js','README.md','.env.example'])copyFileSync(join(source,f),join(input,f));
   for(const d of ['public','scripts','test'])cpSync(join(source,d),join(input,d),{recursive:true});
   writeFileSync(join(input,'.env'),'SHOULD_NOT_COPY=1\n');mkdirSync(join(input,'data'));writeFileSync(join(input,'data','private.txt'),'do not copy');
   const output=await command([join(input,'install.sh'),'--source',input,'--dir',base,'--no-start']);
