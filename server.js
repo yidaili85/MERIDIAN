@@ -194,6 +194,7 @@ function validate(c){
  if(!image(c.heroImage)) throw Error('图片地址须使用 HTTPS 或站内路径');
  for(const p of c.products){
   if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
+  const cmp=Number(p.compareAt||0);if(cmp&&(!Number.isFinite(cmp)||cmp<=p.price||cmp>1000000)) throw Error('原价必须高于售价；不打折请留空');
   if(p.access!==undefined&&!ACCESS_LEVELS.includes(p.access))throw Error('商品观看等级只能是 all / normal / vip');
   if(p.images!==undefined&&(!Array.isArray(p.images)||p.images.length>8||p.images.some(u=>!image(u)||u==='')))throw Error('图集最多 8 张，且每张须为 HTTPS 或站内路径');
  }
