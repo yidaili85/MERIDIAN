@@ -326,3 +326,13 @@ body.has-cookie{padding-bottom:92px}
 .pay-main{padding-bottom:110px}
 
 .admin-hint{margin:10px 0 0;padding:10px 12px;border-left:3px solid #b3261e;background:#fdf3f2;color:#7b1f19;font-size:13px;line-height:1.6}
+
+/* 结账页付款方式 */
+.pay-method{margin:18px 0 6px}
+.pay-method h4{margin:0 0 8px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted,#7c7466)}
+.pm-card{display:flex;align-items:center;gap:12px;border:1px solid var(--ink,#111);border-radius:4px;padding:12px 14px;background:#fff}
+.pm-card.pm-off{border-color:var(--line,#d8d2c6);background:#faf8f4}
+.pm-name{font-weight:600;font-size:14px;letter-spacing:.04em}
+.pm-desc{flex:1;color:var(--muted,#7c7466);font-size:12.5px;line-height:1.5}
+.pm-bad{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#b3261e;border:1px solid #b3261e;border-radius:3px;padding:2px 6px;white-space:nowrap}
+.pm-note{margin:8px 0 0;font-size:12px;color:var(--muted,#7c7466)}
