@@ -11,7 +11,32 @@ const uploadDir = resolve(dir,'uploads'); mkdirSync(uploadDir,{recursive:true});
 const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new URL(process.env.PUBLIC_BASE_URL);return u.protocol==='https:'&&u.pathname==='/'?u.origin:''}catch{return ''}})();
 // 未支付订单保留时长（分钟），0 表示关闭自动释放库存
 const orderTTL=Math.max(0,Number(process.env.ORDER_TTL_MINUTES??30))*60000;
-const mail=createMailer(process.env);
+const MAIL_FIELDS=['provider','apiKey','from','fromName','apiUrl','notifyEmail','whatsapp'];
+function mailSettings(){
+ let saved={};
+ try{const row=db.prepare('SELECT value FROM mail_config WHERE id=1').get();if(row)saved=JSON.parse(row.value)||{};}catch{}
+ const env=process.env;
+ const pick=(dbKey,envKey,fallback='')=>{const v=saved[dbKey];return (typeof v==='string'&&v.trim())?v.trim():(env[envKey]||fallback);};
+ const settings={
+  provider:pick('provider','MAIL_PROVIDER','smtp').toLowerCase(),
+  apiKey:pick('apiKey','MAIL_API_KEY',''),
+  from:pick('from','MAIL_FROM',''),
+  fromName:pick('fromName','MAIL_FROM_NAME','MERIDIAN'),
+  apiUrl:pick('apiUrl','MAIL_API_URL',''),
+  notifyEmail:pick('notifyEmail','ORDER_NOTIFY_EMAIL',''),
+  whatsapp:pick('whatsapp','WHATSAPP_NUMBER',''),
+  smtpHost:pick('smtpHost','MAIL_SMTP_HOST',''),
+  smtpPort:pick('smtpPort','MAIL_SMTP_PORT','587'),
+  smtpSecure:pick('smtpSecure','MAIL_SMTP_SECURE','false'),
+  smtpUser:pick('smtpUser','MAIL_SMTP_USER',''),
+  smtpPass:pick('smtpPass','MAIL_SMTP_PASS',''),
+  source:Object.keys(saved).length?'db':((env.MAIL_API_KEY||env.MAIL_SMTP_HOST)?'env':'none')
+ };
+ return settings;
+}
+function mailEnv(settings){return {...process.env,MAIL_PROVIDER:settings.provider,MAIL_API_KEY:settings.apiKey,MAIL_FROM:settings.from,MAIL_FROM_NAME:settings.fromName,MAIL_API_URL:settings.apiUrl,ORDER_NOTIFY_EMAIL:settings.notifyEmail,WHATSAPP_NUMBER:settings.whatsapp,MAIL_SMTP_HOST:settings.smtpHost,MAIL_SMTP_PORT:settings.smtpPort,MAIL_SMTP_SECURE:settings.smtpSecure,MAIL_SMTP_USER:settings.smtpUser,MAIL_SMTP_PASS:settings.smtpPass};}
+const currentMailer=()=>createMailer(mailEnv(mailSettings()));
+const mailView=()=>{const m=currentMailer(),st=mailSettings();return{enabled:m.enabled,provider:m.provider||st.provider,from:m.from||st.from,apiKeySet:Boolean(st.apiKey),apiKeyHint:st.apiKey?('••••'+st.apiKey.slice(-4)):'',fromName:st.fromName,apiUrl:st.apiUrl,notify:String(st.notifyEmail||'').split(',').map(x=>x.trim()).filter(Boolean),whatsapp:st.whatsapp,smtpHost:st.smtpHost,smtpPort:st.smtpPort,smtpSecure:String(st.smtpSecure)==='true',smtpUser:st.smtpUser,smtpPassSet:Boolean(st.smtpPass),source:st.source};};
 const db = new DatabaseSync(resolve(dir,'store.sqlite'));
 db.exec("CREATE TABLE IF NOT EXISTS customers (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, pass TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'normal', created TEXT NOT NULL); CREATE TABLE IF NOT EXISTS customer_sessions (token TEXT PRIMARY KEY, customer_id TEXT NOT NULL, expires INTEGER NOT NULL);");
 const LEVELS=['normal','vip'];
@@ -39,6 +64,7 @@ function setCustomerCookie(res,id){
  res.setHeader('Set-Cookie',`meridian_customer=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
 }
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
+db.exec('CREATE TABLE IF NOT EXISTS mail_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
 if(!db.prepare('SELECT id FROM payment_config WHERE id=1').get())db.prepare('INSERT INTO payment_config VALUES (1,?)').run(JSON.stringify(defaults));
 const paymentConfig=()=>({...defaults,...JSON.parse(db.prepare('SELECT value FROM payment_config WHERE id=1').get().value)});
@@ -104,11 +130,13 @@ function markOrderMail(id,status,error){
  try{const o=getOrder(id);o.details.mail={status,at:new Date().toISOString(),...(error?{error:String(error).slice(0,200)}:{})};db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);}catch{}
 }
 function queueOrderMail(order,accessToken){
+ const mail=currentMailer();
  if(!mail.enabled)return markOrderMail(order.id,'disabled');
  try{
   const brand=content('published').brand||'MERIDIAN';
-  const msg=orderEmail({order,accessToken,brand,siteUrl:publicBase,whatsapp:process.env.WHATSAPP_NUMBER||''});
-  const recipients=[order.email,...String(process.env.ORDER_NOTIFY_EMAIL||'').split(',').map(s=>s.trim()).filter(Boolean)];
+  const settings=mailSettings();
+  const msg=orderEmail({order,accessToken,brand,siteUrl:publicBase,whatsapp:settings.whatsapp||''});
+  const recipients=[order.email,...String(settings.notifyEmail||'').split(',').map(s=>s.trim()).filter(Boolean)];
   markOrderMail(order.id,'queued');
   Promise.allSettled(recipients.map(to=>mail.send({to,subject:msg.subject,html:msg.html,text:msg.text})))
    .then(rs=>{const bad=rs.filter(r=>r.status==='rejected');markOrderMail(order.id,bad.length?'failed':'sent',bad.length?bad[0].reason?.message:'');})
@@ -242,13 +270,38 @@ const server=http.createServer(async(req,res)=>{
     db.prepare('UPDATE customers SET level=? WHERE id=?').run(b.level,id);
     return json(res,200,{ok:true,level:b.level});
    }
-   if(url.pathname==='/api/admin/mail'&&req.method==='GET')return json(res,200,{enabled:mail.enabled,provider:mail.provider,from:mail.from,notify:String(process.env.ORDER_NOTIFY_EMAIL||'').split(',').map(s=>s.trim()).filter(Boolean)});
+   if(url.pathname==='/api/admin/mail'&&req.method==='GET')return json(res,200,mailView());
+   if(url.pathname==='/api/admin/mail'&&req.method==='PUT'){
+    const b=await body(req),cur=mailSettings();
+    const provider=String(b.provider||cur.provider||'resend').toLowerCase();
+    if(!['resend','postmark','sendgrid','generic','smtp'].includes(provider))throw Error('邮件服务商只能是 resend / postmark / sendgrid / generic / smtp');
+    const emailOk=v=>/^\S+@\S+\.\S+$/.test(String(v||'').trim());
+    const from=String(b.from??cur.from??'').trim();
+    if(from&&!emailOk(from.replace(/^.*</,'').replace(/>.*$/,'')))throw Error('发件地址格式不正确');
+    const apiUrl=String(b.apiUrl??cur.apiUrl??'').trim();
+    if(provider==='generic'&&!/^https:\/\/\S+$/.test(apiUrl)&&!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(apiUrl))throw Error('generic 需要 HTTPS 接口地址（本机调试允许 127.0.0.1）');
+    const notifyEmail=String(b.notifyEmail??cur.notifyEmail??'').trim();
+    if(notifyEmail&&notifyEmail.split(',').map(x=>x.trim()).filter(Boolean).some(x=>!emailOk(x)))throw Error('店主收件地址格式不正确');
+    const apiKeyRaw=b.apiKey===undefined?cur.apiKey:String(b.apiKey||'').trim();
+    if(provider!=='smtp'&&b.apiKey==='')throw Error('API Key 不能为空；如需清除请先关闭邮件功能');
+    const smtpHost=String(b.smtpHost??cur.smtpHost??'').trim();
+    const smtpPort=String(b.smtpPort??cur.smtpPort??'587').trim()||'587';
+    if(provider==='smtp'){
+     if(!smtpHost)throw Error('SMTP 需要服务器地址（如 mail.你的域名.com 或服务商给的 host）');
+     if(!/^\d{1,5}$/.test(smtpPort)||Number(smtpPort)<1||Number(smtpPort)>65535)throw Error('SMTP 端口不合法');
+    }
+    const smtpSecure=(b.smtpSecure===undefined?(String(cur.smtpSecure)==='true'):Boolean(b.smtpSecure))?'true':'false';
+    const smtpPassRaw=b.smtpPass===undefined?cur.smtpPass:String(b.smtpPass||'');
+    const next={provider,apiKey:apiKeyRaw,from,fromName:String(b.fromName??cur.fromName??'MERIDIAN').trim()||'MERIDIAN',apiUrl,notifyEmail,whatsapp:String(b.whatsapp??cur.whatsapp??'').trim(),smtpHost,smtpPort,smtpSecure,smtpUser:String(b.smtpUser??cur.smtpUser??'').trim(),smtpPass:smtpPassRaw};
+    db.prepare('INSERT INTO mail_config (id,value) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(JSON.stringify(next));
+    return json(res,200,{ok:true,...mailView()});
+   }
    if(url.pathname==='/api/admin/mail/test'&&req.method==='POST'){
-    const b=await body(req);
-    if(!mail.enabled)throw Error('邮件未配置：请设置 MAIL_PROVIDER / MAIL_API_KEY / MAIL_FROM');
+    const b=await body(req),mailInst=currentMailer();
+    if(!mailInst.enabled)throw Error('邮件未配置：请填写服务商、API Key 与发件地址');
     if(typeof b.to!=='string'||!/^\S+@\S+\.\S+$/.test(b.to))throw Error('收件地址无效');
     const msg=orderEmail({order:{id:'TEST-'+Date.now(),details:{items:[{name:'测试商品',price:1,quantity:1}],total:1,shipping:0,name:'Test Customer',address:'Test street 1',postalCode:'00000',country:'US',phone:'+1 000 000 0000'}},accessToken:'',brand:content('draft').brand||'MERIDIAN',siteUrl:publicBase});
-    await mail.send({to:b.to,subject:'[测试] '+msg.subject,html:msg.html,text:msg.text});
+    await mailInst.send({to:b.to,subject:'[测试] '+msg.subject,html:msg.html,text:msg.text});
     return json(res,200,{ok:true});
    }
    if(url.pathname==='/api/admin/uploads'&&req.method==='POST'){

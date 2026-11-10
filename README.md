@@ -120,7 +120,8 @@ ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
 | `ORDER_TTL_MINUTES` | `30` | 未支付订单过期返库分钟数，`0` 关闭 |
 | `SWEEP_INTERVAL_MS` | `300000` | 过期扫描间隔 |
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_WEBHOOK_ID` | 空 | 三项齐全才启用 PayPal |
-| `MAIL_PROVIDER` / `MAIL_API_KEY` / `MAIL_FROM` / `MAIL_FROM_NAME` / `MAIL_API_URL` | resend / 空 | 下单邮件（可选） |
+| `MAIL_PROVIDER` / `MAIL_API_KEY` / `MAIL_FROM` / `MAIL_FROM_NAME` / `MAIL_API_URL` | resend / 空 | 下单邮件（可选），也可在后台填写 |
+| `MAIL_SMTP_HOST` / `MAIL_SMTP_PORT` / `MAIL_SMTP_SECURE` / `MAIL_SMTP_USER` / `MAIL_SMTP_PASS` | 空 / 587 / false | 用自有邮箱 SMTP 发信时的参数 |
 | `ORDER_NOTIFY_EMAIL` | 空 | 店主抄送，逗号分隔 |
 | `WHATSAPP_NUMBER` | 空 | 邮件里显示的客服号 |
 
@@ -171,7 +172,29 @@ ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
 
 ---
 
-## 8. 部署与安全
+## 8. 通知邮件（后台可直接改）
+
+后台 → 通知邮件，两种方式任选，保存即生效，不需要发布、不需要改文件：
+
+**① SMTP（自有邮箱，最省事）**：适合已有域名邮箱（企业邮、CraneMail/NameCrane、Zoho、QQ 企业邮等）。
+
+| 字段 | 说明 |
+|---|---|
+| 发送方式 | 选 `SMTP（自有邮箱）` |
+| 服务器地址 | 服务商给的 host，如 `mail.你的域名.com` |
+| 端口 | `465`（勾选 SSL/TLS）或 `587`（不勾，自动 STARTTLS） |
+| 账号 / 密码 | 邮箱地址 + 密码；开了两步验证的要填**应用专用密码** |
+| 发件地址 | 必须是这个邮箱本身，否则会被拒 |
+
+**② HTTP 邮件服务**：Resend / Postmark / SendGrid，或自建兼容端点（`generic` + 接口地址）。适合没有邮箱、想要投递率和退信统计的场景。
+
+配好点「发送测试邮件」，收到就说明通道通了。之后每笔订单自动发确认邮件（含明细、合计、收货信息、付款按钮），并抄送店主收件地址；发信失败不影响下单，状态记在订单 `details.mail`。
+
+**关于收信**：系统只负责发信。客户回信会进你的邮箱（手机/网页都能看），商城不需要收信能力。若以后要做「站内客服/回信归档」，那需要另加 IMAP 拉取，属于新功能。
+
+---
+
+## 9. 部署与安全
 
 - 服务只监听 `127.0.0.1`，公网用 Nginx / Caddy 反代到 `127.0.0.1:3000` 并配 HTTPS；`HOST=0.0.0.0` 只在容器内使用。
 - 后台建议再加一层：Basic Auth + IP 白名单，或只走 VPN。
@@ -180,7 +203,7 @@ ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
 
 ---
 
-## 9. 测试
+## 10. 测试
 
 ```bash
 npm test                                      # 26 条集成测试
@@ -192,12 +215,13 @@ curl -s http://127.0.0.1:3000/healthz         # 健康检查
 
 ---
 
-## 10. 目录结构
+## 11. 目录结构
 
 ```
 server.js               HTTP 服务、路由、内容模型、SEO、静态资源
 payments.js             PayPal / USDT 实现
-mailer.js               下单邮件（resend / postmark / sendgrid / generic）
+mailer.js               下单邮件（SMTP / resend / postmark / sendgrid / generic）
+smtp.js                 零依赖 SMTP 客户端（STARTTLS、AUTH LOGIN）
 public/                 前台 app.js + theme-tandorio.css；后台 admin.js + style.css
 test/                   node:test 集成测试
 scripts/meridian.sh     服务器安装后的进程管理
@@ -211,7 +235,7 @@ Dockerfile / docker-compose.yml / .dockerignore
 
 ---
 
-## 11. 已知边界
+## 12. 已知边界
 
 - 可运行 MVP；默认运费（$12 / 满 $150 免运费）与示例商品是演示数据，需替换。
 - 金额不含目的地税费与关税，正式收款前需完善 VAT / 销售税与配送策略。

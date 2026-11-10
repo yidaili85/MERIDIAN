@@ -10,7 +10,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # 只复制运行所需文件（测试目录保留，方便容器内跑 npm test）
-COPY package.json server.js payments.js mailer.js ./
+COPY package.json server.js payments.js mailer.js smtp.js ./
 COPY public ./public
 COPY test ./test
 

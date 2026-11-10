@@ -55,7 +55,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if [[ -z $SOURCE_DIR && -f $SCRIPT_DIR/server.js && -f $SCRIPT_DIR/payments.js && -f $SCRIPT_DIR/mailer.js ]]; then SOURCE_DIR=$SCRIPT_DIR; fi
 if [[ -n $SOURCE_DIR ]]; then
   SOURCE_DIR=$(cd -- "$SOURCE_DIR" && pwd -P)
-  [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/server.js && -f $SOURCE_DIR/payments.js && -f $SOURCE_DIR/mailer.js && -d $SOURCE_DIR/public && -d $SOURCE_DIR/test && -f $SOURCE_DIR/scripts/meridian.sh ]] || fail 'Source is not a complete MERIDIAN checkout.'
+  [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/server.js && -f $SOURCE_DIR/payments.js && -f $SOURCE_DIR/mailer.js && -f $SOURCE_DIR/smtp.js && -d $SOURCE_DIR/public && -d $SOURCE_DIR/test && -f $SOURCE_DIR/scripts/meridian.sh ]] || fail 'Source is not a complete MERIDIAN checkout.'
   log 'Using local project files (data and credentials will not be copied).'
 else
   log 'Cloning the repository using existing Git authentication…'
@@ -66,7 +66,7 @@ fi
 RELEASE_ID=$(date -u +%Y%m%dT%H%M%S)-$$
 RELEASE=$INSTALL_DIR/releases/$RELEASE_ID
 mkdir "$RELEASE"
-for file in package.json server.js payments.js mailer.js README.md .env.example; do cp -- "$SOURCE_DIR/$file" "$RELEASE/$file"; done
+for file in package.json server.js payments.js mailer.js smtp.js README.md .env.example; do cp -- "$SOURCE_DIR/$file" "$RELEASE/$file"; done
 cp -R -- "$SOURCE_DIR/public" "$SOURCE_DIR/test" "$RELEASE/"
 NODE=''
 if [[ -x $INSTALL_DIR/runtime/node/bin/node ]] && "$INSTALL_DIR/runtime/node/bin/node" -e 'process.exit(+process.versions.node.split(".")[0] >= 24 ? 0 : 1)' 2>/dev/null; then

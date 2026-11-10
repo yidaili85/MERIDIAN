@@ -1,8 +1,10 @@
-// 极简事务邮件：零依赖，走 HTTP API（Resend / Postmark / SendGrid / 自建兼容端点）
-const PROVIDERS = ['resend', 'postmark', 'sendgrid', 'generic'];
+// 极简事务邮件：零依赖，走 HTTP API（Resend / Postmark / SendGrid / 自建兼容端点）或 SMTP
+import { smtpSend } from './smtp.js';
+const PROVIDERS = ['resend', 'postmark', 'sendgrid', 'generic', 'smtp'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => '$' + Number(n || 0).toFixed(2);
+const addressOnly = (v) => String(v || '').replace(/^.*</, '').replace(/>.*$/, '').trim();
 
 export function createMailer(env = process.env, fetchImpl = fetch) {
   const provider = (env.MAIL_PROVIDER || 'resend').toLowerCase();
@@ -11,12 +13,28 @@ export function createMailer(env = process.env, fetchImpl = fetch) {
   const name = (env.MAIL_FROM_NAME || 'MERIDIAN').trim();
   const fromHeader = from ? (from.includes('<') ? from : `${name} <${from}>`) : '';
   const endpoint = provider === 'generic' ? (env.MAIL_API_URL || '') : '';
-  const enabled = Boolean(key && fromHeader && PROVIDERS.includes(provider) && (provider !== 'generic' || endpoint));
+  const smtpHost = (env.MAIL_SMTP_HOST || '').trim();
+  const enabled = Boolean(
+    PROVIDERS.includes(provider) && fromHeader && (
+      provider === 'smtp' ? smtpHost
+      : key && (provider !== 'generic' || endpoint)));
 
   async function send({ to, subject, html, text }) {
     if (!enabled) throw Error('邮件未配置（MAIL_API_KEY / MAIL_FROM）');
     if (!/^\S+@\S+\.\S+$/.test(String(to || ''))) throw Error('收件地址无效');
     let url = endpoint, init;
+    if (provider === 'smtp') {
+      await smtpSend({
+        host: smtpHost,
+        port: Number(env.MAIL_SMTP_PORT || 587),
+        secure: String(env.MAIL_SMTP_SECURE || '') === 'true',
+        user: env.MAIL_SMTP_USER || '',
+        pass: env.MAIL_SMTP_PASS || '',
+        from: addressOnly(from), fromName: name,
+        to, subject, text, html,
+      });
+      return true;
+    }
     if (provider === 'resend') {
       url = 'https://api.resend.com/emails';
       init = { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: fromHeader, to: [to], subject, html, text }) };

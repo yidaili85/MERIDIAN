@@ -7,7 +7,7 @@ const input=(label,key,value,type='text')=>`<label>${label}<input type="${type}"
 const area=(label,key,value)=>`<label>${label}<textarea data-key="${key}" rows="3">${esc(value)}</textarea></label>`;
 function pageData(){return editLang==='en'?content:(content.translations??={})[editLang]??=(({}));}
 function localData(x){return editLang==='en'?x:(x[editLang]??={});}
-function render(){root.innerHTML=`<aside class="sidebar"><a href="/" class="logo">${esc(content.brand)}</a><p class="eyebrow">MERCHANT STUDIO</p>${[['page','◈','页面设计'],['products','▧','商品管理'],['categories','☷','商品分类'],['orders','▤','订单记录'],['payments','◇','支付设置'],['mail','✉','通知邮件'],['customers','◉','用户管理']].map(([id,icon,label])=>`<button data-tab="${id}" class="${tab===id?'active':''}">${icon}　${label}</button>`).join('')}<a href="/" target="_blank" rel="noopener">查看已发布商城 ↗</a><button id="logout">退出登录</button></aside><div class="studio"><div class="studio-top"><div><p class="eyebrow">YOUR BRAND, YOUR WAY</p><h1>${{page:'页面设计',products:'商品管理',categories:'商品分类',orders:'订单记录',payments:'支付设置',mail:'通知邮件',customers:'用户管理'}[tab]}</h1><p class="muted">${tab==='orders'?'PayPal 由服务端确认付款；USDT 须人工核对链上记录后确认，买家提交哈希不代表到账。':'编辑保存在草稿中，发布后才会显示在商城。'}</p></div>${!['payments','orders'].includes(tab)?`<div class="actions"><a class="button outline" href="/?preview=1" target="_blank" rel="noopener">预览已保存草稿 ↗</a><button class="button outline" id="save">保存草稿</button><button class="button" id="publish">保存并发布 ↗</button></div>`:''}</div><div class="studio-toolbar"><span id="save-state">${dirty?'● 有未保存更改':'✓ 草稿已载入'}</span>${!['orders','payments'].includes(tab)?`<label>编辑内容语言 <select id="edit-lang"><option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option></select></label>`:''}</div><div id="editor"></div></div>`;
+function render(){root.innerHTML=`<aside class="sidebar"><a href="/" class="logo">${esc(content.brand)}</a><p class="eyebrow">MERCHANT STUDIO</p>${[['page','◈','页面设计'],['products','▧','商品管理'],['categories','☷','商品分类'],['orders','▤','订单记录'],['payments','◇','支付设置'],['mail','✉','通知邮件'],['customers','◉','用户管理']].map(([id,icon,label])=>`<button data-tab="${id}" class="${tab===id?'active':''}">${icon}　${label}</button>`).join('')}<a href="/" target="_blank" rel="noopener">查看已发布商城 ↗</a><button id="logout">退出登录</button></aside><div class="studio"><div class="studio-top"><div><p class="eyebrow">YOUR BRAND, YOUR WAY</p><h1>${{page:'页面设计',products:'商品管理',categories:'商品分类',orders:'订单记录',payments:'支付设置',mail:'通知邮件',customers:'用户管理'}[tab]}</h1><p class="muted">${tab==='orders'?'PayPal 由服务端确认付款；USDT 须人工核对链上记录后确认，买家提交哈希不代表到账。':tab==='mail'?'邮件设置保存后立即生效，不需要发布。':tab==='payments'?'支付设置保存后立即生效，独立于页面草稿。':tab==='customers'?'会员等级修改后立即生效。':'编辑保存在草稿中，发布后才会显示在商城。'}</p></div>${!['payments','orders','mail','customers'].includes(tab)?`<div class="actions"><a class="button outline" href="/?preview=1" target="_blank" rel="noopener">预览已保存草稿 ↗</a><button class="button outline" id="save">保存草稿</button><button class="button" id="publish">保存并发布 ↗</button></div>`:''}</div><div class="studio-toolbar"><span id="save-state">${dirty?'● 有未保存更改':'✓ 草稿已载入'}</span>${!['orders','payments','mail','customers'].includes(tab)?`<label>编辑内容语言 <select id="edit-lang"><option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option></select></label>`:''}</div><div id="editor"></div></div>`;
  root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();});document.querySelector('#logout').onclick=async()=>{await api('/api/logout',{method:'POST'});login();};if(document.querySelector('#edit-lang')){document.querySelector('#edit-lang').value=editLang;document.querySelector('#edit-lang').onchange=e=>{editLang=e.target.value;render();};}if(document.querySelector('#save'))document.querySelector('#save').onclick=()=>save(false);if(document.querySelector('#publish'))document.querySelector('#publish').onclick=()=>save(true);editor();}
 function changed(){dirty=true;document.querySelector('#save-state').textContent='● 有未保存更改';}
 async function save(publish){const buttons=[...document.querySelectorAll('#save,#publish')];buttons.forEach(b=>b.disabled=true);try{await api('/api/admin/content',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(content)});if(publish)await api('/api/admin/publish',{method:'POST'});dirty=false;document.querySelector('#save-state').textContent=publish?'✓ 已发布':'✓ 草稿已保存';toast(publish?'已发布，商城内容已更新':'草稿已保存');}catch(e){toast(e.message);}finally{buttons.forEach(b=>b.disabled=false);}}
@@ -37,14 +37,80 @@ function editor(){const el=document.querySelector('#editor');if(tab==='page'){co
   document.querySelector('#customer-search').oninput=e=>{clearTimeout(timer);const v=e.target.value.trim();timer=setTimeout(()=>renderCustomers(v),250);};
  }
  if(tab==='mail'){
-  el.innerHTML=`<section class="panel"><div class="panel-heading"><h2>通知邮件</h2></div><p class="muted">客户下单后会立即收到订单确认邮件；配置副本可同时发给店主。发送通过 HTTP 邮件服务（Resend / Postmark / SendGrid 或自建兼容端点），配置写在服务器环境变量里，不存数据库。</p><div id="mail-status">正在读取配置…</div><div class="form-grid"><label>测试收件地址<input id="mail-test-to" type="email" placeholder="you@example.com"></label></div><button class="button" id="mail-test">发送测试邮件</button><p class="muted" id="mail-result"></p></section>`;
-  api('/api/admin/mail').then(m=>{
-   document.querySelector('#mail-status').innerHTML=m.enabled
-    ? `<p>状态：<strong style="color:#1f9d55">已启用</strong> · 提供商 ${esc(m.provider)} · 发件人 ${esc(m.from)}</p><p class="muted">店主副本：${m.notify.length?esc(m.notify.join(', ')):'未设置（ORDER_NOTIFY_EMAIL）'}</p>`
-    : `<p>状态：<strong style="color:#b45309">未配置</strong>，订单仍可正常创建，但不会发送邮件。</p><p class="muted">需要设置环境变量：<code>MAIL_PROVIDER</code>（resend / postmark / sendgrid / generic）、<code>MAIL_API_KEY</code>、<code>MAIL_FROM</code>，可选 <code>MAIL_FROM_NAME</code>、<code>ORDER_NOTIFY_EMAIL</code>、<code>MAIL_API_URL</code>（generic 时必填）。改完重启服务。</p>`;
-  }).catch(e=>{document.querySelector('#mail-status').textContent=e.message;});
-  document.querySelector('#mail-test').onclick=async()=>{
-   const to=document.querySelector('#mail-test-to').value.trim(),out=document.querySelector('#mail-result');
+  el.innerHTML=`<section class="panel"><div class="panel-heading"><h2>通知邮件</h2><span class="muted" id="mail-state">读取中…</span></div>
+  <p class="muted">客户下单后自动发送订单确认邮件，可同时抄送店主。支持 SMTP（自有邮箱，如企业邮箱 / CraneMail）或 HTTP 邮件服务（Resend / Postmark / SendGrid / 自建）。密钥保存在本机数据库，界面只显示末四位。</p>
+  <div class="form-grid">
+   <label>发送方式<select id="mail-provider">
+     <option value="smtp">SMTP（自有邮箱）</option>
+     <option value="resend">Resend</option>
+     <option value="postmark">Postmark</option>
+     <option value="sendgrid">SendGrid</option>
+     <option value="generic">自建 / 兼容端点</option>
+   </select></label>
+   <label>发件地址<input id="mail-from" type="email" placeholder="orders@yourdomain.com"></label>
+   <label>发件人名称<input id="mail-from-name" placeholder="MERIDIAN"></label>
+   <label>店主收件（逗号分隔）<input id="mail-notify" placeholder="owner@example.com"></label>
+   <label>WhatsApp 客服号<input id="mail-whatsapp" placeholder="+8613800000000"></label>
+  </div>
+  <div id="mail-smtp-wrap">
+   <p class="muted" style="margin:14px 0 6px">SMTP 参数（服务商面板可查：465=SSL，587=STARTTLS）</p>
+   <div class="form-grid">
+    <label>服务器地址<input id="mail-smtp-host" placeholder="mail.yourdomain.com"></label>
+    <label>端口<input id="mail-smtp-port" inputmode="numeric" placeholder="465"></label>
+    <label>账号<input id="mail-smtp-user" placeholder="orders@yourdomain.com" autocomplete="off"></label>
+    <label>密码 / 应用专用密码<input id="mail-smtp-pass" type="password" autocomplete="new-password" placeholder="留空表示不修改"></label>
+   </div>
+   <label class="check" style="grid-column:1/-1;margin-top:6px"><input id="mail-smtp-secure" type="checkbox"> 直接用 SSL/TLS（465 勾选；587 不勾，自动 STARTTLS）</label>
+  </div>
+  <div id="mail-key-wrap">
+   <div class="form-grid"><label>API Key<input id="mail-key" type="password" autocomplete="new-password" placeholder="留空表示不修改"></label></div>
+  </div>
+  <div id="mail-url-wrap"><div class="form-grid"><label>接口地址（generic 必填）<input id="mail-url" placeholder="https://your-endpoint/send"></label></div></div>
+  <div class="actions"><button class="button" id="mail-save">保存邮件设置</button></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+  <div class="form-grid"><label>测试收件地址<input id="mail-test-to" type="email" placeholder="you@example.com"></label></div>
+  <button class="button outline" id="mail-test">发送测试邮件</button><p class="muted" id="mail-result"></p></section>`;
+  const q=x=>document.querySelector(x);
+  const syncMode=()=>{
+   const p=q('#mail-provider').value;
+   q('#mail-smtp-wrap').style.display=p==='smtp'?'':'none';
+   q('#mail-key-wrap').style.display=p==='smtp'?'none':'';
+   q('#mail-url-wrap').style.display=p==='generic'?'':'none';
+  };
+  q('#mail-provider').onchange=syncMode;
+  const fill=m=>{
+   q('#mail-provider').value=m.provider||'smtp';
+   q('#mail-from').value=m.from||'';
+   q('#mail-from-name').value=m.fromName||'MERIDIAN';
+   q('#mail-notify').value=(m.notify||[]).join(', ');
+   q('#mail-whatsapp').value=m.whatsapp||'';
+   q('#mail-url').value=m.apiUrl||'';
+   q('#mail-smtp-host').value=m.smtpHost||'';
+   q('#mail-smtp-port').value=m.smtpPort||'587';
+   q('#mail-smtp-user').value=m.smtpUser||'';
+   q('#mail-smtp-secure').checked=Boolean(m.smtpSecure);
+   q('#mail-smtp-pass').value='';
+   q('#mail-smtp-pass').placeholder=m.smtpPassSet?'已保存，留空不修改':'邮箱密码或应用专用密码';
+   q('#mail-key').value='';
+   q('#mail-key').placeholder=m.apiKeySet?('已保存 '+m.apiKeyHint+'，留空不修改'):'粘贴 API Key';
+   q('#mail-state').innerHTML=m.enabled
+    ? '<strong style="color:#1f9d55">已配置，可发送</strong>'
+    : '<strong style="color:#b45309">未完成配置</strong>（订单仍可创建，只是不发邮件）';
+   syncMode();
+  };
+  api('/api/admin/mail').then(fill).catch(e=>{q('#mail-state').textContent=e.message;syncMode();});
+  q('#mail-save').onclick=async()=>{
+   const btn=q('#mail-save');btn.disabled=true;
+   const payload={provider:q('#mail-provider').value,from:q('#mail-from').value.trim(),fromName:q('#mail-from-name').value.trim(),apiUrl:q('#mail-url').value.trim(),notifyEmail:q('#mail-notify').value.trim(),whatsapp:q('#mail-whatsapp').value.trim(),
+    smtpHost:q('#mail-smtp-host').value.trim(),smtpPort:q('#mail-smtp-port').value.trim()||'587',smtpSecure:q('#mail-smtp-secure').checked,smtpUser:q('#mail-smtp-user').value.trim()};
+   const key=q('#mail-key').value.trim();if(key)payload.apiKey=key;
+   const pass=q('#mail-smtp-pass').value;if(pass)payload.smtpPass=pass;
+   try{const m=await api('/api/admin/mail',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});fill(m);toast('邮件设置已保存');}
+   catch(e){toast(e.message);}
+   btn.disabled=false;
+  };
+  q('#mail-test').onclick=async()=>{
+   const to=q('#mail-test-to').value.trim(),out=q('#mail-result');
    out.textContent='发送中…';
    try{const r=await fetch('/api/admin/mail/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to})});const j=await r.json();if(!r.ok)throw Error(j.error||'发送失败');out.textContent='已发送，请查收（含垃圾箱）。';}
    catch(e){out.textContent=e.message;}

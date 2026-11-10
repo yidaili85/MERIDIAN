@@ -21,3 +21,6 @@
 .link-row input{flex:1;min-width:0;font-size:12px;padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;color:#555}
 .link-row button{padding:8px 12px;border:1px solid #ddd;border-radius:6px;background:#fff;font-size:12px;white-space:nowrap}
 .link-row button:hover{background:#f2f1ee}
+
+.form-grid .check{grid-column:1/-1;flex-direction:row;align-items:center;gap:9px}
+.form-grid .check input{width:auto}
