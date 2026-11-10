@@ -13,6 +13,27 @@ const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new
 const orderTTL=Math.max(0,Number(process.env.ORDER_TTL_MINUTES??30))*60000;
 const mail=createMailer(process.env);
 const db = new DatabaseSync(resolve(dir,'store.sqlite'));
+db.exec("CREATE TABLE IF NOT EXISTS customers (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, pass TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'normal', created TEXT NOT NULL); CREATE TABLE IF NOT EXISTS customer_sessions (token TEXT PRIMARY KEY, customer_id TEXT NOT NULL, expires INTEGER NOT NULL);");
+const LEVELS=['normal','vip'];
+const ACCESS_LEVELS=['all','normal','vip'];
+const levelRank={normal:1,vip:2};
+const hashPass=(pw)=>{const salt=randomBytes(16);return salt.toString('hex')+':'+scryptSync(pw,salt,64).toString('hex');};
+const checkPass=(pw,stored)=>{const [saltHex,hashHex]=String(stored||'').split(':');if(!saltHex||!hashHex)return false;try{return timingSafeEqual(scryptSync(pw,Buffer.from(saltHex,'hex'),64),Buffer.from(hashHex,'hex'));}catch{return false;}};
+const canView=(access,viewer)=>{const a=ACCESS_LEVELS.includes(access)?access:'all';if(a==='all')return true;if(!viewer)return false;return (levelRank[viewer.level]||0)>=(levelRank[a]||9);};
+const customerFromReq=(req)=>{
+ const token=(req.headers.cookie||'').match(/(?:^|;\s*)meridian_customer=([^;]+)/)?.[1];
+ if(!token)return null;
+ try{
+  const row=db.prepare('SELECT c.id,c.email,c.name,c.level,s.expires FROM customer_sessions s JOIN customers c ON c.id=s.customer_id WHERE s.token=?').get(digest(token));
+  if(!row||row.expires<Date.now())return null;
+  return {id:row.id,email:row.email,name:row.name,level:row.level};
+ }catch{return null;}
+};
+function setCustomerCookie(res,id){
+ const token=randomBytes(32).toString('hex');
+ db.prepare('INSERT INTO customer_sessions VALUES (?,?,?)').run(digest(token),id,Date.now()+30*86400000);
+ res.setHeader('Set-Cookie',`meridian_customer=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
+}
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
 if(!db.prepare('SELECT id FROM payment_config WHERE id=1').get())db.prepare('INSERT INTO payment_config VALUES (1,?)').run(JSON.stringify(defaults));
@@ -105,6 +126,7 @@ function validate(c){
  if(!image(c.heroImage)) throw Error('图片地址须使用 HTTPS 或站内路径');
  for(const p of c.products){
   if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
+  if(p.access!==undefined&&!ACCESS_LEVELS.includes(p.access))throw Error('商品观看等级只能是 all / normal / vip');
   if(p.images!==undefined&&(!Array.isArray(p.images)||p.images.length>8||p.images.some(u=>!image(u)||u==='')))throw Error('图集最多 8 张，且每张须为 HTTPS 或站内路径');
  }
  return c;
@@ -134,10 +156,12 @@ function securityHeaders(res){
  if(publicBase||process.env.COOKIE_SECURE==='true') res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
 }
 const absURL=u=>/^https:\/\//i.test(u||'')?u:(publicBase&&u?publicBase+u:'');
-function seoHead(url){
+function seoHead(url,req){
  const c=content('published');
  const id=url.searchParams.get('product');
- const product=id?c.products.find(p=>p.id===id&&p.active):null;
+ const viewer=customerFromReq(req);
+ const found=id?c.products.find(p=>p.id===id&&p.active):null;
+ const product=found&&canView(found.access,viewer)?found:null;
  const title=product?`${product.name} — ${c.brand}`:`${c.brand} — Watches & Essentials`;
  const desc=String(product?product.description:(c.subtitle||c.announcement||'')).replace(/\s+/g,' ').trim().slice(0,160);
  const canonical=publicBase?publicBase+(product?`/?product=${encodeURIComponent(product.id)}`:'/'):'';
@@ -145,10 +169,10 @@ function seoHead(url){
  const gallery=product?[product.image,...(Array.isArray(product.images)?product.images:[])].map(absURL).filter(Boolean):[];
  const ld=product
   ?{'@context':'https://schema.org','@type':'Product',name:product.name,description:product.description,sku:product.id,brand:{'@type':'Brand',name:c.brand},...(gallery.length?{image:gallery}:{}),offers:{'@type':'Offer',price:String(product.price),priceCurrency:'USD',availability:product.stock>0?'https://schema.org/InStock':'https://schema.org/OutOfStock',...(canonical?{url:canonical}:{})}}
-  :{'@context':'https://schema.org','@type':'Store',name:c.brand,description:desc,...(canonical?{url:canonical}:{}),...(image?{image:image}:{}),hasOfferCatalog:{'@type':'OfferCatalog',name:'Collection',itemListElement:c.products.filter(p=>p.active).map(p=>({'@type':'Offer',price:String(p.price),priceCurrency:'USD',itemOffered:{'@type':'Product',name:p.name}}))}};
+  :{'@context':'https://schema.org','@type':'Store',name:c.brand,description:desc,...(canonical?{url:canonical}:{}),...(image?{image:image}:{}),hasOfferCatalog:{'@type':'OfferCatalog',name:'Collection',itemListElement:c.products.filter(p=>p.active&&canView(p.access,viewer)).map(p=>({'@type':'Offer',price:String(p.price),priceCurrency:'USD',itemOffered:{'@type':'Product',name:p.name}}))}};
  return [
   `<meta name="description" content="${esc(desc)}">`,
-  `<meta name="robots" content="${url.searchParams.has('preview')?'noindex, nofollow':'index, follow'}">`,
+  `<meta name="robots" content="${url.searchParams.has('preview')||(id&&!product)?'noindex, nofollow':'index, follow'}">`,
   `<meta property="og:type" content="${product?'product':'website'}">`,
   `<meta property="og:site_name" content="${esc(c.brand)}">`,
   `<meta property="og:title" content="${esc(title)}">`,
@@ -160,7 +184,7 @@ function seoHead(url){
   `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g,'\\u003c')}</script>`
  ].filter(Boolean).join('');
 }
-function renderIndex(url){return readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url)+'</head>');}
+function renderIndex(url,req){return readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+'</head>');}
 function sitemapXML(){
  if(!publicBase)return '';
  const c=content('published'),last=new Date().toISOString().slice(0,10);
@@ -189,6 +213,21 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/admin/content'&&req.method==='PUT'){save('draft',validate(await body(req)));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/publish'&&req.method==='POST'){save('published',validate(content('draft')));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/orders'&&req.method==='GET')return json(res,200,db.prepare('SELECT * FROM orders ORDER BY created DESC').all().map(x=>({...x,details:JSON.parse(x.details),payment:paymentView(getPayment(x.id))})));
+   if(url.pathname==='/api/admin/customers'&&req.method==='GET'){
+    const q=String(url.searchParams.get('q')||'').trim().toLowerCase();
+    const rows=db.prepare('SELECT id,email,name,level,created FROM customers ORDER BY created DESC LIMIT 500').all();
+    const list=q?rows.filter(r=>r.email.includes(q)||String(r.name||'').toLowerCase().includes(q)):rows;
+    return json(res,200,list.map(r=>({...r,orders:db.prepare("SELECT COUNT(*) n FROM orders WHERE details LIKE ?").get('%'+r.id+'%').n})));
+   }
+   if(url.pathname.startsWith('/api/admin/customers/')&&req.method==='PUT'){
+    const id=decodeURIComponent(url.pathname.split('/').pop());
+    const b=await body(req);
+    if(!LEVELS.includes(b.level))throw Error('等级只能是 normal 或 vip');
+    const row=db.prepare('SELECT id FROM customers WHERE id=?').get(id);
+    if(!row)return json(res,404,{error:'用户不存在'});
+    db.prepare('UPDATE customers SET level=? WHERE id=?').run(b.level,id);
+    return json(res,200,{ok:true,level:b.level});
+   }
    if(url.pathname==='/api/admin/mail'&&req.method==='GET')return json(res,200,{enabled:mail.enabled,provider:mail.provider,from:mail.from,notify:String(process.env.ORDER_NOTIFY_EMAIL||'').split(',').map(s=>s.trim()).filter(Boolean)});
    if(url.pathname==='/api/admin/mail/test'&&req.method==='POST'){
     const b=await body(req);
@@ -240,14 +279,57 @@ const server=http.createServer(async(req,res)=>{
     const p=await createCheckout(o,paymentConfig(),process.env,b.provider);putPayment(id,p);return json(res,201,{payment:paymentView(p)});
    });
   }
-  if(url.pathname==='/api/store'&&req.method==='GET'){const c=content(url.searchParams.has('preview')&&auth(req)?'draft':'published');c.products=c.products.filter(p=>p.active);return json(res,200,c);}
+  if(url.pathname==='/api/auth/register'&&req.method==='POST'){
+   const b=await body(req);const email=String(b.email||'').trim().toLowerCase();
+   if(!/^\S+@\S+\.\S+$/.test(email))throw Error('邮箱格式不正确');
+   if(typeof b.password!=='string'||b.password.length<8)throw Error('密码至少 8 位');
+   if(b.password.length>200)throw Error('密码过长');
+   if(db.prepare('SELECT 1 FROM customers WHERE email=?').get(email))return json(res,409,{error:'该邮箱已注册，请直接登录'});
+   const id='C'+randomBytes(8).toString('hex'),name=String(b.name||'').slice(0,80);
+   db.prepare('INSERT INTO customers VALUES (?,?,?,?,?,?)').run(id,email,name,hashPass(b.password),'normal',new Date().toISOString());
+   setCustomerCookie(res,id);
+   return json(res,201,{email,level:'normal',name});
+  }
+  if(url.pathname==='/api/auth/login'&&req.method==='POST'){
+   const ip='c:'+req.socket.remoteAddress,now=Date.now(),a=attempts.get(ip)||{n:0,t:now};
+   if(now-a.t>600000){a.n=0;a.t=now;}
+   if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});
+   const b=await body(req),email=String(b.email||'').trim().toLowerCase();
+   const row=db.prepare('SELECT id,email,name,level,pass FROM customers WHERE email=?').get(email);
+   if(!row||typeof b.password!=='string'||!checkPass(b.password,row.pass)){a.n++;attempts.set(ip,a);return json(res,401,{error:'邮箱或密码不正确'});}
+   attempts.delete(ip);
+   setCustomerCookie(res,row.id);
+   return json(res,200,{email:row.email,name:row.name,level:row.level});
+  }
+  if(url.pathname==='/api/auth/logout'&&req.method==='POST'){
+   const token=(req.headers.cookie||'').match(/(?:^|;\s*)meridian_customer=([^;]+)/)?.[1];
+   if(token)db.prepare('DELETE FROM customer_sessions WHERE token=?').run(digest(token));
+   res.setHeader('Set-Cookie',`meridian_customer=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
+   return json(res,200,{ok:true});
+  }
+  if(url.pathname==='/api/auth/me'&&req.method==='GET'){
+   const viewer=customerFromReq(req);
+   return viewer?json(res,200,viewer):json(res,401,{error:'未登录'});
+  }
+  if(url.pathname==='/api/store'&&req.method==='GET'){
+   const viewer=customerFromReq(req);
+   const c=content(url.searchParams.has('preview')&&auth(req)?'draft':'published');
+   c.products=c.products.filter(p=>p.active).map(p=>{
+    const access=ACCESS_LEVELS.includes(p.access)?p.access:'all',locked=!canView(access,viewer);
+    const base={id:p.id,name:p.name,price:p.price,image:p.image,category:p.category,badge:p.badge||'',stock:p.stock,active:true,access,locked};
+    if(locked)return{...base,description:'',de:{name:p.de?.name||p.name},es:{name:p.es?.name||p.name}};
+    return{...p,access,locked:false};
+   });
+   c.viewer=viewer?{email:viewer.email,level:viewer.level,name:viewer.name}:null;
+   return json(res,200,c);
+  }
   if(url.pathname==='/api/orders'&&req.method==='POST'){
    const b=await body(req);if(typeof b.email!=='string'||!/^\S+@\S+\.\S+$/.test(b.email)||typeof b.country!=='string'||!b.country.trim()||typeof b.postalCode!=='string'||!b.postalCode.trim())throw Error('Email, country and postal code are required');
    if(!b.name?.trim()||!b.phone?.trim()||!b.address?.trim()||!Array.isArray(b.items)||!b.items.length||b.items.length>100)return json(res,400,{error:'Please complete your shipping information and select a product'});
    if([b.name,b.phone,b.address].some(x=>typeof x!=='string'||x.length>500))throw Error('Shipping information is too long');
    const c=content('published'),draft=content('draft'),seen=new Set();let total=0;
-   const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
-   const shipping=total>=15000?0:1200;const details={country:String(b.country||'').slice(0,100),postalCode:String(b.postalCode||'').slice(0,40),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
+   const viewer=customerFromReq(req);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');if(!canView(p.access,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
+   const shipping=total>=15000?0:1200;const details={...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),country:String(b.country||'').slice(0,100),postalCode:String(b.postalCode||'').slice(0,40),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
   }
@@ -273,7 +355,7 @@ const server=http.createServer(async(req,res)=>{
   }
   const file=url.pathname==='/admin'?'admin.html':url.pathname==='/'?'index.html':url.pathname.slice(1);
   if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
-  if(file==='index.html'){res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url));}
+  if(file==='index.html'){res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url,req));}
   res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);res.end(readFileSync(resolve('public',file)));
  }catch(e){json(res,400,{error:e.message||'请求失败'});}
 });
