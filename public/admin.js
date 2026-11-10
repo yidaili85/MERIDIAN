@@ -221,7 +221,7 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
   row.querySelectorAll('[data-main]').forEach(b=>b.onclick=()=>{const idx=+b.dataset.main,url=p.images[idx],old=p.image;p.images.splice(idx,1);if(old)p.images.push(old);p.image=url;changed();editor();});
  });
 }
-if(tab==='categories'){el.innerHTML=`<section class="panel"><div class="panel-heading"><h2>分类导航</h2><button class="button" id="new-category">＋ 添加分类</button></div><p class="muted">分类名称支持三种语言。删除前需先移动该分类内的商品。</p><div id="category-list"></div></section>`;content.categories.forEach((c,i)=>{const d=document.createElement('div');d.className='category-row';d.innerHTML=`${input('English','name',c.name)}${input('Deutsch','de',c.de||'')}${input('Español','es',c.es||'')}<label>观看等级<select data-key="access"><option value="all" ${(c.access||'all')==='all'?'selected':''}>公开 · 所有人</option><option value="normal" ${c.access==='normal'?'selected':''}>登录会员</option><option value="vip" ${c.access==='vip'?'selected':''}>VIP 专属</option></select></label><label>分类链接<div class="link-row"><input readonly value="${location.origin}/?category=${encodeURIComponent(c.id)}"><button type="button" data-copy-cat>复制</button></div></label><button data-delete>删除</button>`;document.querySelector('#category-list').append(d);bind(d,c);d.querySelector('[data-delete]').onclick=()=>{if(content.products.some(p=>p.category===c.id))return toast('此分类仍有商品，请先移动或删除商品');content.categories.splice(i,1);changed();editor();};});document.querySelector('#new-category').onclick=()=>{content.categories.push({id:crypto.randomUUID(),name:'New category',de:'',es:''});changed();editor();};}
+if(tab==='categories'){el.innerHTML=`<section class="panel"><div class="panel-heading"><h2>分类导航</h2><button class="button" id="new-category">＋ 添加分类</button></div><p class="muted">分类名称支持三种语言。删除前需先移动该分类内的商品。</p><div id="category-list"></div></section>`;content.categories.forEach((c,i)=>{const d=document.createElement('div');d.className='category-row';d.innerHTML=`${input('English','name',c.name)}${input('Deutsch','de',c.de||'')}${input('Español','es',c.es||'')}<label>观看等级<select data-key="access"><option value="all" ${(c.access||'all')==='all'?'selected':''}>公开 · 所有人</option><option value="normal" ${c.access==='normal'?'selected':''}>登录会员</option><option value="vip" ${c.access==='vip'?'selected':''}>VIP 专属</option></select></label><label>分类链接<div class="link-row"><input readonly value="${location.origin}/?category=${encodeURIComponent(c.id)}"><button type="button" data-copy-cat>复制</button></div></label><button data-delete>删除</button>`;document.querySelector('#category-list').append(d);bind(d,c);d.querySelector('[data-delete]').onclick=()=>{if(content.products.some(p=>p.category===c.id))return toast('此分类仍有商品，请先移动或删除商品');content.categories.splice(i,1);changed();editor();};});document.querySelector('#new-category').onclick=()=>{content.categories.push({id:crypto.randomUUID(),name:'New category',de:'',es:''});toast('已添加分类，改好名称后点「保存并发布」');setTimeout(()=>{const rows=document.querySelectorAll('#category-list .category-row');const last=rows[rows.length-1];if(last){last.scrollIntoView({block:'center'});const i=last.querySelector('input');i&&i.select();}},120);changed();editor();};}
  if(tab==='customers'){
   el.innerHTML=`<section class="panel"><div class="panel-heading"><h2>用户管理</h2><input id="customer-search" type="search" placeholder="搜索邮箱或姓名"></div><p class="muted">等级说明：普通用户可看「公开」与「登录会员」商品；VIP 用户可看全部，包括「VIP 专属」商品。改等级立即生效，用户下次刷新页面即可看到。</p><div id="customer-list">正在加载…</div></section>`;
   const renderCustomers=async(q='')=>{
@@ -351,3 +351,47 @@ async function versionCheck(){
  }
 }
 setTimeout(versionCheck,400);setTimeout(versionCheck,1800);
+
+// ---------- 前端错误捕获 + 自检 ----------
+window.__errs=[];
+function showErrorBar(msg){
+  let bar=document.querySelector('#meridianErrorBar');
+  if(!bar){bar=document.createElement('div');bar.id='meridianErrorBar';document.body.prepend(bar);}
+  bar.innerHTML=`<strong>后台脚本报错（把这段发给技术支持）</strong><span></span><button>关闭</button>`;
+  bar.querySelector('span').textContent=String(msg).slice(0,400);
+  bar.querySelector('button').onclick=()=>bar.remove();
+}
+window.addEventListener('error',e=>{window.__errs.push(e.message);showErrorBar(e.message);});
+window.addEventListener('unhandledrejection',e=>{const m=e.reason&&e.reason.message||e.reason;window.__errs.push(String(m));showErrorBar(m);});
+async function selfCheck(){
+  const box=document.createElement('div');
+  box.id='selfCheckBox';
+  box.innerHTML=`<div class="sc-head"><strong>自检</strong><button>关闭</button></div><div class="sc-body">正在检查…</div>`;
+  document.body.append(box);
+  box.querySelector('button').onclick=()=>box.remove();
+  const body=box.querySelector('.sc-body');
+  const rows=[];
+  const meta=(n)=>document.querySelector(`meta[name="${n}"]`)?.content||'';
+  let srv={};
+  try{srv=await (await fetch('/api/version',{cache:'no-store'})).json();}catch{}
+  rows.push(['界面版本',meta('meridian-build').slice(0,8)||'未知']);
+  rows.push(['服务版本',String(srv.build||'').slice(0,8)||'取不到']);
+  rows.push(['版本一致',meta('meridian-build')===srv.build?'✓':'✗ 需要重启服务']);
+  for(const path of ['/api/admin/analytics?days=7','/api/admin/content','/api/admin/customers','/api/admin/orders','/api/admin/payments','/api/admin/mail','/api/admin/sitemap']){
+    let st='—';
+    try{const r=await fetch(path,{cache:'no-store'});st=r.status+(r.ok?' ✓':' ✗');
+      if(!r.ok){const t=await r.text();st+=' '+t.slice(0,80);}
+    }catch(e){st='网络错误 '+e.message;}
+    rows.push([path.replace('/api/admin/',''),st]);
+  }
+  rows.push(['前端错误',window.__errs.length?window.__errs.slice(-3).join(' / '):'无']);
+  rows.push(['商品/分类',`${(content.products||[]).length} / ${(content.categories||[]).length}`]);
+  body.innerHTML=rows.map(([k,v])=>`<div class="sc-row"><span>${k}</span><code>${String(v).replace(/</g,'&lt;')}</code></div>`).join('');
+}
+function ensureSelfCheck(){
+  if(document.querySelector('#selfcheck'))return;
+  const actions=document.querySelector('.studio-top .actions');
+  if(!actions)return;
+  const b=document.createElement('button');b.id='selfcheck';b.className='button outline';b.textContent='自检';b.onclick=selfCheck;actions.append(b);
+}
+setInterval(ensureSelfCheck,800);
