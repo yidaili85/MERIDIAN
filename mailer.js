@@ -45,7 +45,7 @@ export function createMailer(env = process.env, fetchImpl = fetch) {
 export function orderEmail({ order, accessToken, brand = 'MERIDIAN', siteUrl = '', whatsapp = '' }) {
   const details = order.details || order;
   const items = Array.isArray(details.items) ? details.items : [];
-  const rows = items.map((i) => `<tr><td style="padding:10px 0;border-bottom:1px solid #eee">${esc(i.name)}<br><span style="color:#868686;font-size:12px">× ${i.quantity}</span></td><td align="right" style="padding:10px 0;border-bottom:1px solid #eee">${money(i.price * i.quantity)}</td></tr>`).join('');
+  const rows = items.map((i) => `<tr><td style="padding:10px 0;border-bottom:1px solid #eee">${esc(i.name)}<br><span style="color:#868686;font-size:12px">× ${i.quantity} · ${money(i.price)} each</span></td><td align="right" style="padding:10px 0;border-bottom:1px solid #eee">${money(i.price * i.quantity)}</td></tr>`).join('');
   const payUrl = siteUrl && accessToken ? `${siteUrl}/?order=${encodeURIComponent(order.id)}&token=${encodeURIComponent(accessToken)}` : '';
   const subject = `订单已收到 ${order.id} · ${brand}`;
   const html = `<!doctype html><html><body style="margin:0;background:#f6f5f3;font-family:Georgia,serif;color:#333">
