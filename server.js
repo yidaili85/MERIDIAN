@@ -225,8 +225,16 @@ const server=http.createServer(async(req,res)=>{
    res.setHeader('Cache-Control','public, max-age=31536000, immutable');
    return res.end(readFileSync(f));
   }
+  const font=url.pathname.match(/^\/fonts\/(cardo|poppins)-(300|400|500|600|700)\.woff2$/);
+  if(font){
+   const f=resolve('public','fonts',font[1]+'-'+font[2]+'.woff2');
+   try{if(!statSync(f).isFile())throw Error();}catch{res.writeHead(404);return res.end('Not found');}
+   res.setHeader('Content-Type','font/woff2');
+   res.setHeader('Cache-Control','public, max-age=31536000, immutable');
+   return res.end(readFileSync(f));
+  }
   const file=url.pathname==='/admin'?'admin.html':url.pathname==='/'?'index.html':url.pathname.slice(1);
-  if(!['index.html','admin.html','app.js','admin.js','style.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
+  if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
   if(file==='index.html'){res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url));}
   res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);res.end(readFileSync(resolve('public',file)));
  }catch(e){json(res,400,{error:e.message||'请求失败'});}
