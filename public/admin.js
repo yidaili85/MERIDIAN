@@ -28,6 +28,7 @@ async function load(){try{content=await api('/api/admin/content');content.whatsa
 const input=(label,key,value,type='text')=>`<label>${label}<input type="${type}" data-key="${key}" value="${esc(value)}" ${type==='number'?'min="0" step="any"':''}></label>`;
 const area=(label,key,value)=>`<label>${label}<textarea data-key="${key}" rows="3">${esc(value)}</textarea></label>`;
 function pageData(){return editLang==='en'?content:(content.translations??={})[editLang]??=(({}));}
+const LANG_LABEL={en:'English',de:'Deutsch',es:'Español'};
 function localData(x){return editLang==='en'?x:(x[editLang]??={});}
 function render(){root.innerHTML=`<aside class="sidebar"><a href="/" class="logo">${esc(content.brand)}</a><p class="eyebrow">MERCHANT STUDIO</p><a href="/" class="side-home" target="_blank" rel="noopener">← 返回商城首页</a>${[['dashboard','▦','数据看板'],['page','◈','页面设计'],['sitemap','◎','站点地图'],['policies','§','政策页面'],['products','▧','商品管理'],['categories','☷','商品分类'],['orders','▤','订单记录'],['payments','◇','支付设置'],['mail','✉','通知邮件'],['customers','◉','用户管理'],['account','⚿','账号安全']].map(([id,icon,label])=>`<button data-tab="${id}" class="${tab===id?'active':''}">${icon}　${label}</button>`).join('')}<a href="/" target="_blank" rel="noopener">查看已发布商城 ↗</a><button id="logout">退出登录</button><p class="side-version" id="side-version"></p></aside><div class="studio"><div class="studio-top"><div><p class="eyebrow">YOUR BRAND, YOUR WAY</p><h1>${{dashboard:'数据看板',page:'页面设计',sitemap:'站点地图',policies:'政策页面',products:'商品管理',categories:'商品分类',orders:'订单记录',payments:'支付设置',mail:'通知邮件',customers:'用户管理',account:'账号安全'}[tab]}</h1><p class="muted">${tab==='dashboard'?'流量、加购、订单与单品浏览量的实时汇总，数据来自本机访问日志与订单库。':tab==='policies'?'隐私政策、服务条款、配送与退换政策。发布后自动出现在前台页脚，并提交到 sitemap。':tab==='sitemap'?'给搜索引擎的站点地图：只收录游客可见的商品，VIP / 会员专属商品不会写入。发布后自动更新。':tab==='orders'?'PayPal 由服务端确认付款；USDT 须人工核对链上记录后确认，买家提交哈希不代表到账。':tab==='mail'?'邮件设置保存后立即生效，不需要发布。':tab==='payments'?'支付设置保存后立即生效，独立于页面草稿。':tab==='account'?'后台密码保存在数据库里，改完立即生效，不需要再 SSH 去 config.env 里找密码。':tab==='customers'?'会员等级修改后立即生效。':'编辑保存在草稿中，发布后才会显示在商城。'}</p></div><div class="actions"><a class="button outline" href="/" target="_blank" rel="noopener">← 商城首页</a>${!['dashboard','payments','orders','mail','customers','sitemap','account'].includes(tab)?`<a class="button outline" href="/?preview=1" target="_blank" rel="noopener">预览已保存草稿 ↗</a><button class="button outline" id="save">保存草稿</button><button class="button" id="publish">保存并发布 ↗</button>`:''}</div></div><div class="studio-toolbar"><span id="save-state">${dirty?'● 有未保存更改':'✓ 草稿已载入'}</span>${!['dashboard','orders','payments','mail','customers','sitemap'].includes(tab)?`<label>编辑内容语言 <select id="edit-lang"><option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option></select></label>`:''}</div><div id="editor"></div></div>`;
  root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();});document.querySelector('#logout').onclick=async()=>{await api('/api/logout',{method:'POST'});login();};if(document.querySelector('#edit-lang')){document.querySelector('#edit-lang').value=editLang;document.querySelector('#edit-lang').onchange=e=>{editLang=e.target.value;render();};}if(document.querySelector('#save'))document.querySelector('#save').onclick=()=>save(false);if(document.querySelector('#publish'))document.querySelector('#publish').onclick=()=>save(true);editor();}
@@ -137,7 +138,7 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
  const editorRow=p=>{
   const l=localData(p);
   return `<tr class="editor-row"><td colspan="9"><div class="product-form"><img src="${esc(p.image)}" alt="商品预览"><div>
-   <div class="localized">${input('商品名称','name',l.name??'')}${area('商品描述','description',l.description??'')}</div>
+   <div class="localized">${editLang!=='en'?`<p class="tr-hint">正在编辑 <strong>${LANG_LABEL[editLang]}</strong> 译文：填了这里，前台切到该语言就显示这段；留空自动回退英文。<button type="button" class="mini" data-copy-en="name">名称从英文复制</button><button type="button" class="mini" data-copy-en="description">描述从英文复制</button></p>`:''}${input('商品名称','name',l.name??'')}${area('商品描述','description',l.description??'')}</div>
    <div class="shared form-grid">
     ${input('售价 USD（前台显示）','price',p.price,'number')}
     ${input('原价 USD（划线价，留空无折扣）','compareAt',p.compareAt||'','number')}
@@ -171,13 +172,14 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
    <label>统一售价 USD<input id="batch-price" type="number" min="0" step="0.01" placeholder="留空不改"></label>
    <label>统一原价 USD<input id="batch-compare" type="number" min="0" step="0.01" placeholder="留空不改，填 0 清除划线价"></label>
    <label>统一观看权限<select id="batch-access"><option value="">不改</option><option value="all">公开</option><option value="normal">会员</option><option value="vip">VIP</option></select></label>
+   <label>把英文名称/描述复制到${LANG_LABEL[editLang]}（只填充未翻译的）<button type="button" class="button outline mini" id="batch-copy-lang">应用到 ${prodSel.size} 件</button></label>
    <label>统一上架状态<select id="batch-active"><option value="">不改</option><option value="1">上架</option><option value="0">下架</option></select></label>
   </div><div class="batch-actions"><button class="button" id="batch-apply">应用到 ${prodSel.size} 件</button><button class="button outline" id="batch-cancel">取消</button></div></div>`:''}
  <div class="panel prod-table-wrap"><table class="prod-table"><thead><tr><th class="c-check"><input type="checkbox" id="check-all" ${pageItems.length&&pageItems.every(p=>prodSel.has(p.id))?'checked':''}></th><th>图片</th><th>名称</th><th>价格</th><th>库存</th><th>分类</th><th>权限</th><th>状态</th><th class="c-ops">操作</th></tr></thead><tbody>
  ${pageItems.map(p=>`<tr class="${prodOpen.has(p.id)?'open':''}">
   <td class="c-check"><input type="checkbox" data-sel="${esc(p.id)}" ${prodSel.has(p.id)?'checked':''}></td>
   <td><a href="/?product=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" title="在新标签打开商品页"><img class="thumb" src="${esc(p.image)}" alt="" loading="lazy"></a></td>
-  <td><a class="prod-name-link" href="/?product=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" title="在新标签打开商品页"><strong>${esc(p.name||'新商品')}</strong></a>${p.badge?`<br><small class="muted">${esc(p.badge)}</small>`:''}</td>
+  <td><a class="prod-name-link" href="/?product=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" title="在新标签打开商品页"><strong>${esc(p.name||'新商品')}</strong></a>${p.badge?`<br><small class="muted">${esc(p.badge)}</small>`:''}${editLang!=='en'&&!(p[editLang]&&p[editLang].name)?`<br><small class="miss-tr">缺${LANG_LABEL[editLang]}译文</small>`:''}</td>
   <td>${priceCell(p)}</td>
   <td>${Number(p.stock||0)}</td>
   <td>${esc(catName(p.category))}</td>
@@ -203,7 +205,13 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
  document.querySelector('#batch-off').onclick=()=>{content.products.forEach(p=>{if(prodSel.has(p.id))p.active=false;});changed();editor();};
  document.querySelector('#batch-edit').onclick=()=>{batchOpen=true;editor();};
  document.querySelector('#batch-cancel')?.addEventListener('click',()=>{batchOpen=false;editor();});
- document.querySelector('#batch-apply')?.addEventListener('click',()=>{
+ document.querySelector('#batch-copy-lang')?.addEventListener('click',()=>{
+   if(editLang==='en')return toast('当前编辑语言是 English，无需复制');
+   let n=0;
+   for(const p of content.products){if(!prodSel.has(p.id))continue;const l=p[editLang]||(p[editLang]={});if(l.name)continue;l.name=p.name||'';if(!l.description)l.description=p.description||'';n++;}
+   changed();editor();toast(n?`已为 ${n} 件商品填入 ${LANG_LABEL[editLang]}（沿用英文，可再逐条修改）`:'选中商品都已经有译文了');
+  });
+  document.querySelector('#batch-apply')?.addEventListener('click',()=>{
   const priceRaw=document.querySelector('#batch-price').value.trim();
   const cmpRaw=document.querySelector('#batch-compare').value.trim();
   const access=document.querySelector('#batch-access').value;
@@ -235,6 +243,16 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
   bind(row.querySelector('.shared'),p);
   row.querySelectorAll('[data-spec]').forEach(inp=>inp.oninput=()=>{p.specs=p.specs||{};const v=inp.value.trim();if(v)p.specs[inp.dataset.spec]=v;else delete p.specs[inp.dataset.spec];if(!Object.keys(p.specs).length)delete p.specs;changed();});
   row.querySelectorAll('[data-copy-link]').forEach(b=>b.onclick=async()=>{const input=b.closest('.link-row').querySelector('input');try{await copyText(input.value);toast('链接已复制');}catch{input.select();document.execCommand('copy');toast('链接已复制');}});
+  row.querySelectorAll('[data-copy-en]').forEach(btn=>btn.onclick=()=>{
+   const key=btn.dataset.copyEn;const val=p[key]||'';
+   if(!val)return toast('英文内容为空，无法复制');
+   if(l[key]&&l[key]!==val&&!confirm('这里已经有译文，确定用英文覆盖吗？'))return;
+   l[key]=val;
+   const box=row.querySelector('.localized');
+   bind(box,l);changed();
+   const field=box.querySelector(`[data-key="${key}"]`);if(field){field.value=val;field.focus();}
+   toast(`已复制英文${key==='name'?'名称':'描述'}，可继续修改成${LANG_LABEL[editLang]}`);
+  });
   const up=row.querySelector('[data-upload]');
   if(up)up.onchange=async()=>{const f=up.files&&up.files[0];if(!f)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type))return toast('只支持 PNG / JPEG / WebP');if(f.size>5*1024*1024)return toast('图片不能超过 5MB');try{const data=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=()=>rej(Error('读取失败'));fr.readAsDataURL(f);});const r=await fetch('/api/admin/uploads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data})});const j=await r.json();if(!r.ok)throw Error(j.error||'上传失败');p.image=j.url;changed();editor();toast('图片已上传');}catch(e){toast(e.message);}};
   const multi=row.querySelector('[data-upload-multi]');
