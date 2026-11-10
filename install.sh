@@ -32,7 +32,8 @@ done
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 log() { printf '%s\n' "$*"; }
 [[ $(uname -s) == Linux ]] || fail 'Linux is required (Debian 12+ / Ubuntu 22.04+ recommended).'
-[[ $EUID -ne 0 ]] || fail 'Run as a normal deployment user. Do not run the store as root.'
+[[ $EUID -ne 0 || ${MERIDIAN_ALLOW_ROOT:-0} == 1 ]] || fail 'Run as a normal deployment user. Do not run the store as root. (Override for throwaway test boxes only: MERIDIAN_ALLOW_ROOT=1 bash install.sh)'
+[[ $EUID -ne 0 ]] || printf 'WARNING: running as root because MERIDIAN_ALLOW_ROOT=1. Use a dedicated user in production.\n' >&2
 [[ $INSTALL_DIR == /* && $INSTALL_DIR != / && $INSTALL_DIR =~ ^/[a-zA-Z0-9._/-]+$ ]] || fail '--dir must be an absolute path without spaces or special characters.'
 for tool in curl git tar xz sha256sum mktemp sed awk chmod cp mv ln readlink nohup; do
   command -v "$tool" >/dev/null || fail "Missing $tool. On Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y ca-certificates curl git tar xz-utils coreutils"

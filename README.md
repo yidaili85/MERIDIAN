@@ -90,6 +90,20 @@ git -C meridian-store pull --ff-only && bash meridian-store/install.sh   # 升�
 
 私有仓库不适用匿名 `curl raw.githubusercontent.com/... | bash`；不要把访问令牌写进安装命令或发到聊天。
 
+**如果你 SSH 登录的是 root**，`install.sh` 会拒绝执行（不建议网站跑在 root 下）。三条路：
+
+```bash
+# 1) 建一个部署用户，之后都用它（生产推荐）
+adduser --disabled-password --gecos "" meridian
+su - meridian -c 'git clone -b feature/hardening-seo https://github.com/yidaili85/MERIDIAN.git ~/meridian-store && bash ~/meridian-store/install.sh'
+
+# 2) 用 Docker 跑（容器内已是非 root 的 app 用户）
+cd ~/meridian-store && bash scripts/quickstart-docker.sh
+
+# 3) 只是想快速看效果，临时允许 root（仅测试机）
+MERIDIAN_ALLOW_ROOT=1 bash install.sh
+```
+
 ---
 
 ## 3. 首次登录与上手顺序
