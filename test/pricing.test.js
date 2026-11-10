@@ -45,7 +45,7 @@ test('discount price: selling price drives storefront, original price is display
  assert.equal(s.compareAt,249,'前台应保留划线原价');
 
  // 订单按折扣价计算，不按原价
- const order=await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Buyer',email:'b@example.com',phone:'+1 202 555 0100',country:'US',postalCode:'02108',address:'9 Beacon St',items:[{id:p.id,quantity:2}]})});
+ const order=await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Buyer',email:'b@example.com',phone:'+1 202 555 0100',country:'US',state:'MA',postalCode:'02108',address:'9 Beacon St',items:[{id:p.id,quantity:2}]})});
  assert.equal(order.status,201);
  const created=await order.json();
  assert.equal(created.total,378,'两件应按 189 × 2 计价');

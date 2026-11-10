@@ -129,3 +129,58 @@
 .sm-stat span{display:block;font-size:10px;letter-spacing:.6px;color:var(--muted);margin-bottom:6px}
 .sm-stat strong{font:500 22px/1 'DM Sans',sans-serif}
 .xml-preview{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.7;background:#fafbf8;white-space:pre-wrap;word-break:break-all;overflow:auto}
+
+/* ---------- 页脚：政策链接 + 支付图标 ---------- */
+.footer-nav{display:flex;flex-wrap:wrap;gap:20px;padding:24px 0 4px;border-top:1px solid var(--line);font-size:11px;letter-spacing:.4px}
+.footer-nav a,.footer-nav button{font-size:11px;letter-spacing:.4px;color:#5f675e}
+.footer-nav a:hover,.footer-nav button:hover{color:var(--ink)}
+.footer-pay{display:flex;align-items:center;gap:12px;margin-top:18px;flex-wrap:wrap}
+.pay-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pay-icon svg{width:38px;height:24px;display:block}
+.pay-label{font-size:9px;letter-spacing:1.4px;color:var(--muted)}
+.footer-mail a{font-size:11px;text-decoration:underline;color:#5f675e}
+/* ---------- Cookie 条 ---------- */
+body.has-cookie{padding-bottom:92px}
+.cookie-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;background:#26382f;color:#e8ece4;display:flex;gap:18px;align-items:center;justify-content:center;padding:14px 20px;font-size:12px;flex-wrap:wrap;box-shadow:0 -6px 24px #0002}
+.cookie-bar p{margin:0;max-width:720px;line-height:1.6}
+.cookie-bar a{text-decoration:underline}
+.cookie-bar .button{background:#f4f2ea;color:#26382f;border-color:#f4f2ea;padding:9px 20px;min-height:40px}
+/* ---------- 政策页 ---------- */
+.policy{max-width:760px;margin:0 auto;padding:70px 24px 40px}
+.policy h1{font-size:40px;margin-bottom:28px}
+.policy-body p{color:#3b433c;line-height:1.9;margin-bottom:18px;font-size:14px}
+.policy-nav{display:flex;gap:18px;flex-wrap:wrap;margin-top:40px;padding-top:22px;border-top:1px solid var(--line);font-size:12px}
+.policy-nav a{border-bottom:1px solid #c9cec3;padding-bottom:2px}
+.policy-footer{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:26px 5%;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+.policy-footer a{margin-left:16px}
+/* ---------- 商品规格 ---------- */
+.specs{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:12px}
+.specs th{text-align:left;font-weight:400;color:var(--muted);padding:9px 0;border-bottom:1px solid #eef0e9;width:46%}
+.specs td{padding:9px 0;border-bottom:1px solid #eef0e9}
+.stock-line{font-size:12px;margin-top:14px}
+/* ---------- 结账/规格后台 ---------- */
+.field-hint{font-size:10px;color:var(--muted);margin-top:5px}
+.spec-grid{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0 22px;margin-bottom:6px}
+.spec-title{grid-column:1/-1;margin:8px 0 10px}
+/* ---------- 订单查询 ---------- */
+.track-card{border:1px solid var(--line);padding:18px;margin-top:18px}
+.track-head{display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-bottom:6px}
+.track-items{list-style:none;padding:0;margin:12px 0 0;font-size:12px}
+.track-items li{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #f0f1ec}
+/* ---------- 手机端触控区 ---------- */
+@media(max-width:760px){
+ .nav-tools{gap:12px}
+ .nav-tools select,.nav-tools .currency,.nav-tools button{min-height:44px;display:inline-flex;align-items:center}
+ .main-nav{scrollbar-width:none;-webkit-overflow-scrolling:touch}
+ .main-nav::-webkit-scrollbar{display:none}
+ .main-nav a{padding:12px 0;min-height:44px;display:inline-flex;align-items:center}
+ .header-search input{min-height:44px;font-size:15px}
+ .header-search button{min-width:48px;min-height:44px}
+ .tabs button{min-height:44px;padding:12px 14px}
+ .add{width:38px;height:38px;font-size:21px}
+ .footer-nav{gap:16px}
+ .cookie-bar{padding:14px 16px;font-size:12px;justify-content:flex-start}
+ .policy h1{font-size:30px}
+ .policy{padding:44px 20px 30px}
+ .spec-grid{grid-template-columns:1fr}
+}

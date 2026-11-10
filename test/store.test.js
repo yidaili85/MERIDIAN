@@ -23,7 +23,7 @@ test('store, authorization, translations, draft isolation, publish, stock and or
  const invalid=structuredClone(draft);invalid.products[0].stock=-1;assert.equal((await req('/api/admin/content','PUT',invalid,true)).status,400);
  assert.equal((await req('/api/admin/publish','POST',null,true)).status,200);
  assert.equal((await req('/api/store')).data.title,'Draft-only title');
- const customer={name:'Alex Smith',email:'alex@example.com',phone:'+1 202 555 0123',address:'10 Main St, Boston, MA',country:'United States',postalCode:'02108'};
+ const customer={name:'Alex Smith',email:'alex@example.com',phone:'+1 202 555 0123',address:'10 Main St, Boston, MA',country:'US',state:'MA',postalCode:'02108'};
  assert.equal((await req('/api/orders','POST',{...customer,items:[{id:'p1',quantity:99999}]})).status,400);
  assert.equal((await req('/api/orders','POST',{...customer,items:[{id:'p1',quantity:1},{id:'p1',quantity:1}]})).status,400);
  const order=await req('/api/orders','POST',{...customer,items:[{id:'p1',quantity:2,price:1}]});assert.equal(order.status,201);assert.equal(order.data.total,400);assert.equal(order.data.currency,'USD');assert.equal(order.data.shipping,0);
@@ -42,7 +42,7 @@ test('manual USDT: configuration, owner access, quote snapshots, admin-only conf
  let config={...initial.config,usdtEnabled:true,usdtNetwork:'erc20',usdtAddress:'0x'+'1'.repeat(40),usdtRate:1.1};
  assert.equal((await req('/api/admin/payments','PUT',{...config,usdtAddress:'wrong'},true)).status,400);
  assert.equal((await req('/api/admin/payments','PUT',config,true)).status,200);assert.equal((await req('/api/payments/methods')).data.usdt,true);
- const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',postalCode:'02108',items:[{id:'p3',quantity:1}]};
+ const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',state:'MA',postalCode:'02108',items:[{id:'p3',quantity:1}]};
  const order=(await req('/api/orders','POST',customer)).data;
  async function owned(o,action,method='GET',data){const r=await fetch(base+'/api/orders/'+o.id+'/'+action,{method,headers:{Authorization:'Bearer '+o.accessToken,'Content-Type':'application/json'},...(data?{body:JSON.stringify(data)}:{})});return{status:r.status,data:await r.json()};}
  assert.equal((await req('/api/orders/'+order.id+'/payment')).status,403);

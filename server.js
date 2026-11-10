@@ -5,6 +5,7 @@ import { randomBytes, timingSafeEqual, scryptSync, createHash } from 'node:crypt
 import { createMailer, orderEmail } from './mailer.js';
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
+import {COUNTRIES, byCode, postcodeValid, stateList} from './countries.js';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
 const uploadDir = resolve(dir,'uploads'); mkdirSync(uploadDir,{recursive:true});
 // 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
@@ -110,7 +111,12 @@ const allowedProviders=(config,env,policy)=>{
  return list.includes(policy)?[policy]:list;
 };
 const paymentView=p=>p?{provider:p.provider,mode:p.mode,status:p.status,amount:p.amount,currency:p.currency,network:p.network,transactionId:p.transactionId,paidAt:p.paidAt,url:p.url,address:p.address,usdtAmount:p.usdtAmount,rate:p.rate,submittedHash:p.submittedHash}:null;
-const seed={closingTitle:'Make every moment yours.',closingText:'Your own rhythm. Your own signature.',closingLink:'Discover your next classic',footer:'Time well considered.',promise1:'Considered design',promise2:'Made for your everyday',promise3:'Complimentary shipping $150+',brand:'MERIDIAN',announcement:'Complimentary shipping on orders $150+ · Designed for every moment',title:'Time, exceptionally yours.',subtitle:'Considered watches and essential accessories. Designed to go beyond the everyday.',eyebrow:'PRECISION MEETS PERSONALITY',heroImage:'/assets/hero.svg',accent:'#303c38',translations:{de:{closingTitle:'Jeder Moment gehört Ihnen.',closingText:'Ihr Rhythmus. Ihr Stil.',closingLink:'Ihren nächsten Klassiker entdecken',footer:'Zeit, bewusst gestaltet.',promise1:'Durchdachtes Design',promise2:'Für Ihren Alltag',promise3:'Kostenloser Versand ab $150',announcement:'Kostenloser Versand ab $150 · Für jeden Moment',title:'Zeit. Auf Ihre Art.',subtitle:'Ausgewählte Uhren und unverzichtbare Accessoires. Für mehr als nur den Alltag.',eyebrow:'PRÄZISION TRIFFT PERSÖNLICHKEIT'},es:{closingTitle:'Haz tuyo cada momento.',closingText:'Tu ritmo. Tu estilo.',closingLink:'Descubre tu próximo clásico',footer:'El tiempo, bien pensado.',promise1:'Diseño cuidado',promise2:'Para tu día a día',promise3:'Envío gratuito a partir de $150',announcement:'Envío gratuito a partir de $150 · Para cada momento',title:'El tiempo, a tu manera.',subtitle:'Relojes y accesorios esenciales, elegidos con intención. Más allá de lo cotidiano.',eyebrow:'PRECISIÓN CON PERSONALIDAD'}},categories:[{id:'watches',name:'Watches',de:'Uhren',es:'Relojes'},{id:'straps',name:'Watch straps',de:'Armbänder',es:'Correas'},{id:'storage',name:'Cases & storage',de:'Etuis & Aufbewahrung',es:'Estuches'},{id:'care',name:'Tools & care',de:'Werkzeug & Pflege',es:'Herramientas y cuidado'}],sections:[{id:'intro',type:'text',title:'Every second, considered.',text:'Clean lines. Thoughtful details. Discover watches and accessories that make your time feel like your own.',visible:true,de:{title:'Jede Sekunde zählt.',text:'Klare Linien. Durchdachte Details. Entdecken Sie Uhren und Accessoires für Ihren eigenen Rhythmus.'},es:{title:'Cada segundo cuenta.',text:'Líneas limpias. Detalles cuidados. Descubre relojes y accesorios para vivir a tu propio ritmo.'}},{id:'collection',type:'products',title:'Find your next signature.',text:'The considered collection',visible:true,de:{title:'Finden Sie Ihren Stil.',text:'Die ausgewählte Kollektion'},es:{title:'Encuentra tu próximo clásico.',text:'Una colección con intención'}}],products:[{id:'p1',name:'The Classic — Silver',category:'watches',price:189,stock:30,image:'/assets/classic.svg',description:'A clean, understated silhouette for everyday wear. Sample product: confirm specifications with the merchant before ordering.',active:true,badge:'BESTSELLER',de:{name:'The Classic — Silber',description:'Eine klare, dezente Silhouette für jeden Tag. Musterprodukt: Spezifikationen vor der Bestellung beim Händler bestätigen.'},es:{name:'The Classic — Plata',description:'Una silueta limpia y discreta para cada día. Producto de muestra: confirma las especificaciones con el vendedor antes de comprar.'}},{id:'p2',name:'The Chronograph — Noir',category:'watches',price:249,stock:16,image:'/assets/noir.svg',description:'A striking dial with a timeless profile. Sample product; specifications are not yet confirmed.',active:true,badge:'NEW',de:{name:'The Chronograph — Noir',description:'Ein markantes Zifferblatt mit zeitlosem Profil. Musterprodukt; Spezifikationen noch nicht bestätigt.'},es:{name:'The Chronograph — Noir',description:'Una esfera distintiva con un perfil atemporal. Producto de muestra; especificaciones pendientes de confirmar.'}},{id:'p3',name:'Everyday Leather Strap',category:'straps',price:39,stock:50,image:'/assets/strap.svg',description:'Refresh your everyday watch. Sample listing: please confirm lug width and compatibility before ordering.',active:true,badge:'',de:{name:'Lederarmband Everyday',description:'Ein neuer Look für Ihre Uhr. Musterangebot: Bandanstoß und Kompatibilität vor dem Kauf bestätigen.'},es:{name:'Correa de piel Everyday',description:'Renueva tu reloj. Anuncio de muestra: confirma el ancho y la compatibilidad antes de comprar.'}},{id:'p4',name:'Weekend Watch Case',category:'storage',price:59,stock:25,image:'/assets/case.svg',description:'A dedicated place for your favourite timepiece. Sample product; final images and specifications to be supplied.',active:true,badge:'EDITORS’ PICK',de:{name:'Uhrenetui Weekend',description:'Ein fester Platz für Ihre Lieblingsuhr. Musterprodukt; finale Bilder und Spezifikationen folgen.'},es:{name:'Estuche Weekend',description:'Un lugar para tu reloj favorito. Producto de muestra; imágenes y especificaciones finales pendientes.'}}]};
+const seed={closingTitle:'Make every moment yours.',closingText:'Your own rhythm. Your own signature.',closingLink:'Discover your next classic',footer:'Time well considered.',promise1:'Considered design',promise2:'Made for your everyday',promise3:'Complimentary shipping $150+',brand:'MERIDIAN',announcement:'Complimentary shipping on orders $150+ · Designed for every moment',title:'Time, exceptionally yours.',subtitle:'Considered watches and essential accessories. Designed to go beyond the everyday.',eyebrow:'PRECISION MEETS PERSONALITY',heroImage:'/assets/hero.svg',accent:'#303c38',translations:{de:{closingTitle:'Jeder Moment gehört Ihnen.',closingText:'Ihr Rhythmus. Ihr Stil.',closingLink:'Ihren nächsten Klassiker entdecken',footer:'Zeit, bewusst gestaltet.',promise1:'Durchdachtes Design',promise2:'Für Ihren Alltag',promise3:'Kostenloser Versand ab $150',announcement:'Kostenloser Versand ab $150 · Für jeden Moment',title:'Zeit. Auf Ihre Art.',subtitle:'Ausgewählte Uhren und unverzichtbare Accessoires. Für mehr als nur den Alltag.',eyebrow:'PRÄZISION TRIFFT PERSÖNLICHKEIT'},es:{closingTitle:'Haz tuyo cada momento.',closingText:'Tu ritmo. Tu estilo.',closingLink:'Descubre tu próximo clásico',footer:'El tiempo, bien pensado.',promise1:'Diseño cuidado',promise2:'Para tu día a día',promise3:'Envío gratuito a partir de $150',announcement:'Envío gratuito a partir de $150 · Para cada momento',title:'El tiempo, a tu manera.',subtitle:'Relojes y accesorios esenciales, elegidos con intención. Más allá de lo cotidiano.',eyebrow:'PRECISIÓN CON PERSONALIDAD'}},categories:[{id:'watches',name:'Watches',de:'Uhren',es:'Relojes'},{id:'straps',name:'Watch straps',de:'Armbänder',es:'Correas'},{id:'storage',name:'Cases & storage',de:'Etuis & Aufbewahrung',es:'Estuches'},{id:'care',name:'Tools & care',de:'Werkzeug & Pflege',es:'Herramientas y cuidado'}],sections:[{id:'intro',type:'text',title:'Every second, considered.',text:'Clean lines. Thoughtful details. Discover watches and accessories that make your time feel like your own.',visible:true,de:{title:'Jede Sekunde zählt.',text:'Klare Linien. Durchdachte Details. Entdecken Sie Uhren und Accessoires für Ihren eigenen Rhythmus.'},es:{title:'Cada segundo cuenta.',text:'Líneas limpias. Detalles cuidados. Descubre relojes y accesorios para vivir a tu propio ritmo.'}},{id:'collection',type:'products',title:'Find your next signature.',text:'The considered collection',visible:true,de:{title:'Finden Sie Ihren Stil.',text:'Die ausgewählte Kollektion'},es:{title:'Encuentra tu próximo clásico.',text:'Una colección con intención'}}],pages:[
+ {id:'privacy',title:'Privacy Policy',body:`We collect only what we need to fulfil your order: your name, email, phone number, shipping address and order history. Payment details are handled by our payment providers (PayPal) and are never stored on this website.\n\nWe use a single anonymous cookie to count visits and to keep your bag between pages. We do not run advertising trackers and we do not sell your data.\n\nYou can ask us to export or delete your data at any time by emailing us. We keep order records for as long as tax law requires.\n\nContact: [your email address]`},
+ {id:'terms',title:'Terms of Sale',body:`By placing an order you confirm that the information you provide is accurate and that you are authorised to use the payment method supplied.\n\nAll prices are shown in US dollars and exclude import duties or local taxes, which are the responsibility of the recipient. Orders are confirmed by email; we may cancel an order and refund it in full if an item is unavailable or the order cannot be verified.\n\nProduct descriptions, photographs and specifications are provided in good faith. Where a specification is critical to your purchase, contact us before ordering.\n\nThis website and its content belong to [your company name].`},
+ {id:'shipping',title:'Shipping & Delivery',body:`Orders are dispatched within 1–3 business days. Delivery normally takes 3–7 business days to the United States, the United Kingdom and the European Union, and 7–14 business days elsewhere.\n\nShipping is complimentary on orders over $150. Orders below that amount are charged a flat $12.\n\nEvery parcel is sent with tracking, and the tracking number is emailed to you when the order leaves our warehouse. Import duties or VAT charged by your customs authority are not included and are payable by the recipient.\n\nIf a parcel is delayed beyond 30 days we will replace it or refund it.`},
+ {id:'returns',title:'Returns & Refunds',body:`You may return an unused item in its original packaging within 30 days of delivery for a full refund of the item price.\n\nTo start a return, email us with your order number. We will send return instructions. Return shipping is paid by the customer unless the item arrived damaged or incorrect.\n\nRefunds are issued to the original payment method within 5 business days of the returned item arriving and being inspected.\n\nEngraved, worn or altered items cannot be returned. Watches must be returned with all protective films and links intact.`}
+],products:[{id:'p1',name:'The Classic — Silver',category:'watches',price:189,stock:30,image:'/assets/classic.svg',description:'A clean, understated silhouette for everyday wear. Sample product: confirm specifications with the merchant before ordering.',active:true,badge:'BESTSELLER',de:{name:'The Classic — Silber',description:'Eine klare, dezente Silhouette für jeden Tag. Musterprodukt: Spezifikationen vor der Bestellung beim Händler bestätigen.'},es:{name:'The Classic — Plata',description:'Una silueta limpia y discreta para cada día. Producto de muestra: confirma las especificaciones con el vendedor antes de comprar.'}},{id:'p2',name:'The Chronograph — Noir',category:'watches',price:249,stock:16,image:'/assets/noir.svg',description:'A striking dial with a timeless profile. Sample product; specifications are not yet confirmed.',active:true,badge:'NEW',de:{name:'The Chronograph — Noir',description:'Ein markantes Zifferblatt mit zeitlosem Profil. Musterprodukt; Spezifikationen noch nicht bestätigt.'},es:{name:'The Chronograph — Noir',description:'Una esfera distintiva con un perfil atemporal. Producto de muestra; especificaciones pendientes de confirmar.'}},{id:'p3',name:'Everyday Leather Strap',category:'straps',price:39,stock:50,image:'/assets/strap.svg',description:'Refresh your everyday watch. Sample listing: please confirm lug width and compatibility before ordering.',active:true,badge:'',de:{name:'Lederarmband Everyday',description:'Ein neuer Look für Ihre Uhr. Musterangebot: Bandanstoß und Kompatibilität vor dem Kauf bestätigen.'},es:{name:'Correa de piel Everyday',description:'Renueva tu reloj. Anuncio de muestra: confirma el ancho y la compatibilidad antes de comprar.'}},{id:'p4',name:'Weekend Watch Case',category:'storage',price:59,stock:25,image:'/assets/case.svg',description:'A dedicated place for your favourite timepiece. Sample product; final images and specifications to be supplied.',active:true,badge:'EDITORS’ PICK',de:{name:'Uhrenetui Weekend',description:'Ein fester Platz für Ihre Lieblingsuhr. Musterprodukt; finale Bilder und Spezifikationen folgen.'},es:{name:'Estuche Weekend',description:'Un lugar para tu reloj favorito. Producto de muestra; imágenes y especificaciones finales pendientes.'}}]};
 if(!db.prepare('SELECT id FROM content WHERE id=1').get()) db.prepare('INSERT INTO content VALUES (1,?,?)').run(JSON.stringify(seed),JSON.stringify(seed));
 const password=process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
 if(!process.env.ADMIN_PASSWORD) console.log(`临时管理员密码（重启后变化）: ${password}`);
@@ -193,11 +199,25 @@ function validate(c){
  const image=(s)=>typeof s==='string'&&(s===''||/^https:\/\//i.test(s)||/^\/[^/]/.test(s));
  if(!image(c.heroImage)) throw Error('图片地址须使用 HTTPS 或站内路径');
  if(c.favicon!==undefined&&c.favicon!==''&&!image(c.favicon)) throw Error('站点图标须为 HTTPS 或站内路径');
+ if(c.pages!==undefined){
+  if(!Array.isArray(c.pages)||c.pages.length>12)throw Error('政策页面格式错误');
+  const ids=new Set();
+  for(const pg of c.pages){
+   if(!pg||typeof pg.id!=='string'||!/^[a-z][a-z0-9-]{1,40}$/.test(pg.id))throw Error('政策页面标识不合法（小写字母、数字、连字符）');
+   if(ids.has(pg.id))throw Error('政策页面标识重复');ids.add(pg.id);
+   if(typeof pg.title!=='string'||!pg.title.trim()||pg.title.length>140)throw Error('政策页面标题不能为空');
+   if(typeof pg.body!=='string'||pg.body.length>20000)throw Error('政策页面正文过长');
+  }
+ }
  for(const p of c.products){
   if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
   const cmp=Number(p.compareAt||0);if(cmp&&(!Number.isFinite(cmp)||cmp<=p.price||cmp>1000000)) throw Error('原价必须高于售价；不打折请留空');
   if(p.access!==undefined&&!ACCESS_LEVELS.includes(p.access))throw Error('商品观看等级只能是 all / normal / vip');
   if(p.images!==undefined&&(!Array.isArray(p.images)||p.images.length>8||p.images.some(u=>!image(u)||u==='')))throw Error('图集最多 8 张，且每张须为 HTTPS 或站内路径');
+  if(p.specs!==undefined){
+   if(!p.specs||typeof p.specs!=='object'||Array.isArray(p.specs))throw Error('商品规格格式错误');
+   for(const [k,v] of Object.entries(p.specs)){if(!['caseSize','movement','waterResistance','lugWidth','crystal','weight','caseMaterial','strapMaterial'].includes(k))throw Error('未知的规格字段：'+k);if(typeof v!=='string'||v.length>120)throw Error('规格内容过长');}
+  }
  }
  return c;
 }
@@ -205,6 +225,7 @@ const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application
 async function body(req,limit=2e6){let str='';for await(const chunk of req){str+=chunk;if(Buffer.byteLength(str)>limit) throw Error('请求过大');}return JSON.parse(str||'{}');}
 const auth=(req)=>{const token=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('session='))?.slice(8);return token&&sessions.get(token)>Date.now();};
 const attempts=new Map();
+const lookups=new Map();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const hostOnly=h=>{const v=String(h||'').split(',')[0].trim().toLowerCase();return /^[a-z0-9.-]+(:\d+)?$/.test(v)?v:''};
 // 反向代理（Nginx/Caddy/1Panel）后 Host 与 X-Forwarded-Host 不一致时，origin 校验会误判 403
@@ -259,12 +280,38 @@ function seoHead(url,req){
  ].filter(Boolean).join('');
 }
 function renderIndex(url,req){return readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+'</head>');}
+const escHtml=(x)=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const policyList=()=>(content('published').pages||[]).filter(p=>p&&p.id);
+function policyExists(name){return policyList().some(p=>p.id===name);}
+function policyPage(name){
+ const c=content('published'),page=policyList().find(p=>p.id===name);
+ if(!page)return '';
+ const others=policyList().filter(p=>p.id!==name);
+ const body=escHtml(page.body||'').split(/\n{2,}/).map(b=>`<p>${b.replace(/\n/g,'<br>')}</p>`).join('');
+ const desc=String(page.body||'').replace(/\s+/g,' ').slice(0,160);
+ const canonical=publicBase?`${publicBase}/${encodeURIComponent(page.id)}`:'';
+ return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escHtml(page.title)} — ${escHtml(c.brand)}</title>
+<meta name="description" content="${escHtml(desc)}">
+${canonical?`<link rel="canonical" href="${escHtml(canonical)}">`:''}
+<link rel="icon" href="${escHtml(c.favicon||'/assets/favicon.svg')}">
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/theme-tandorio.css">
+<meta name="theme-color" content="${escHtml(c.accent||'#26382f')}">
+</head><body class="policy-page">
+<header class="site-header"><div class="header-main"><a class="logo" href="/">${escHtml(c.brand)}<small>WATCHES &amp; ESSENTIALS</small></a><nav class="main-nav"><a href="/">Home</a><a href="/#collection">Shop</a></nav></div></header>
+<main class="policy"><p class="eyebrow">${escHtml(c.brand)}</p><h1>${escHtml(page.title)}</h1><div class="policy-body">${body}</div>
+<nav class="policy-nav">${others.map(o=>`<a href="/${encodeURIComponent(o.id)}">${escHtml(o.title)}</a>`).join('')}<a href="/">← Back to the shop</a></nav></main>
+<footer class="policy-footer"><span>© ${new Date().getFullYear()} ${escHtml(c.brand)}</span><span>${others.map(o=>`<a href="/${encodeURIComponent(o.id)}">${escHtml(o.title)}</a>`).join('')}</span></footer>
+</body></html>`;
+}
+
 function sitemapXML(){
  if(!publicBase)return '';
  const c=content('published'),last=new Date().toISOString().slice(0,10);
  const urls=[`<url><loc>${publicBase}/</loc><lastmod>${last}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
   ...c.products.filter(p=>p.active&&effectiveAccess(p,categoryAccessMap(c))==='all').map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
- return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
+ const pageUrls=(c.pages||[]).filter(pg=>pg&&pg.id).map(pg=>`<url><loc>${publicBase}/${encodeURIComponent(pg.id)}</loc><lastmod>${last}</lastmod><changefreq>monthly</changefreq><priority>0.4</priority></url>`);
+ return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.concat(pageUrls).join('')}</urlset>`;
 }
 const server=http.createServer(async(req,res)=>{
  securityHeaders(res);
@@ -480,7 +527,20 @@ const server=http.createServer(async(req,res)=>{
    c.products=c.products.filter(p=>p.active&&canView(effectiveAccess(p,catMap),viewer)).map(p=>({...p,access:effectiveAccess(p,catMap),locked:false}));
    c.categories=(c.categories||[]).filter(x=>canView(catMap.get(x.id),viewer));
    c.viewer=viewer?{email:viewer.email,level:viewer.level,name:viewer.name}:null;
+   c.countries=COUNTRIES.map(({code,name,postal,states})=>({code,name,pattern:postal?postal.source:'',states:states?stateList(code).map(([sc,sn])=>({code:sc,name:sn})):null}));
+   c.contactEmail=process.env.ORDER_NOTIFY_EMAIL||'';
    return json(res,200,c);
+  }
+  if(url.pathname==='/api/orders/lookup'&&req.method==='GET'){
+   const email=String(url.searchParams.get('email')||'').trim().toLowerCase();
+   const ref=String(url.searchParams.get('id')||'').trim().toUpperCase();
+   if(!email||!ref)return json(res,400,{error:'请输入下单邮箱和订单号'});
+   const ip=req.socket.remoteAddress,now=Date.now(),a=lookups.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;}if(a.n>=30)return json(res,429,{error:'查询次数过多，请十分钟后再试'});a.n++;lookups.set(ip,a);
+   const rows=db.prepare('SELECT id,created,details FROM orders ORDER BY created DESC LIMIT 500').all();
+   const hit=rows.find(r=>r.id.toUpperCase()===ref&&String((JSON.parse(r.details)||{}).email||'').toLowerCase()===email);
+   if(!hit)return json(res,404,{error:'没有找到匹配的订单，请核对邮箱和订单号'});
+   const d=JSON.parse(hit.details);
+   return json(res,200,{id:hit.id,created:hit.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price})),countryName:d.countryName||d.country,tracking:d.tracking||null});
   }
   if(url.pathname.startsWith('/api/products/')&&req.method==='GET'){
    const id=decodeURIComponent(url.pathname.slice('/api/products/'.length));
@@ -492,17 +552,27 @@ const server=http.createServer(async(req,res)=>{
    return json(res,200,{...p,access,locked:false});
   }
   if(url.pathname==='/api/orders'&&req.method==='POST'){
-   const b=await body(req);if(typeof b.email!=='string'||!/^\S+@\S+\.\S+$/.test(b.email)||typeof b.country!=='string'||!b.country.trim()||typeof b.postalCode!=='string'||!b.postalCode.trim())throw Error('Email, country and postal code are required');
+   const b=await body(req);if(typeof b.email!=='string'||!/^\S+@\S+\.\S+$/.test(b.email))throw Error('Please enter a valid email address');
+   if(typeof b.country!=='string'||!byCode(b.country))throw Error('Please select your country from the list');
+   if(typeof b.postalCode!=='string'||!postcodeValid(b.country,b.postalCode))throw Error('That postal / ZIP code does not look right for the selected country');
+   const stateOptions=stateList(b.country);
+   if(stateOptions&&!stateOptions.some(([code])=>code===String(b.state||'').toUpperCase()))throw Error('Please select your state / province');
    if(!b.name?.trim()||!b.phone?.trim()||!b.address?.trim()||!Array.isArray(b.items)||!b.items.length||b.items.length>100)return json(res,400,{error:'Please complete your shipping information and select a product'});
    if([b.name,b.phone,b.address].some(x=>typeof x!=='string'||x.length>500))throw Error('Shipping information is too long');
    const c=content('published'),draft=content('draft'),seen=new Set();let total=0,hasVipItem=false;
    const viewer=customerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');const itemAccess=effectiveAccess(p,catMap);if(!canView(itemAccess,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');if(itemAccess==='vip')hasVipItem=true;seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
-   const shipping=total>=15000?0:1200;const details={...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:(hasVipItem?'usdt':'paypal'),country:String(b.country||'').slice(0,100),postalCode:String(b.postalCode||'').slice(0,40),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
+   const shipping=total>=15000?0:1200;const details={...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:(hasVipItem?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
   }
   if(url.pathname.startsWith('/api/'))return json(res,404,{error:'接口不存在'});
   if(!['GET','HEAD'].includes(req.method))return json(res,405,{error:'不支持此方法'});
+  if(policyExists(url.pathname.replace(/^\//,''))){
+   const html=policyPage(url.pathname.slice(1));
+   if(!html){res.writeHead(404,{'Content-Type':'text/html; charset=utf-8'});return res.end('<!doctype html><meta charset="utf-8"><title>Not found</title><p>Page not found. <a href="/">Back to the shop</a></p>');}
+   res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','public, max-age=300');
+   return res.end(html);
+  }
   if(url.pathname==='/robots.txt'){res.setHeader('Content-Type','text/plain; charset=utf-8');res.setHeader('Cache-Control','public, max-age=3600');return res.end(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n${publicBase?`Sitemap: ${publicBase}/sitemap.xml\n`:''}`);}
   if(url.pathname==='/sitemap.xml'){const xml=sitemapXML();if(!xml){res.writeHead(404);return res.end('Not found');}res.setHeader('Content-Type','application/xml; charset=utf-8');res.setHeader('Cache-Control','public, max-age=3600');return res.end(xml);}
   const upload=url.pathname.match(/^\/uploads\/([a-f0-9]{32}\.(?:png|jpg|webp))$/);

@@ -107,7 +107,7 @@ test('image upload: admin only, magic-byte validation, cacheable serving',async(
 });
 
 test('unpaid orders expire and release stock, but submitted payments are kept',async()=>{
- const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',postalCode:'02108'};
+ const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',state:'MA',postalCode:'02108'};
  const before=await stockOf(B.base,'p1');
  const order=await (await fetch(B.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...customer,items:[{id:'p1',quantity:2}]})})).json();
  assert.equal(await stockOf(B.base,'p1'),before-2);

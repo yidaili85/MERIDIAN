@@ -15,7 +15,7 @@ test('installer starts HTTP service, preserves config/orders on reinstall and st
  const temp=mkdtempSync(join(tmpdir(),'meridian-install-test-')),base=join(temp,'installation'),input=join(temp,'source');let manager;
  try{
   // Model the clean application checkout to avoid copying local customer data.
-  mkdirSync(input);for(const f of ['install.sh','package.json','server.js','payments.js','mailer.js','smtp.js','README.md','.env.example'])copyFileSync(join(source,f),join(input,f));
+  mkdirSync(input);for(const f of ['install.sh','package.json','server.js','payments.js','mailer.js','smtp.js','countries.js','README.md','.env.example'])copyFileSync(join(source,f),join(input,f));
   for(const d of ['public','scripts','test'])cpSync(join(source,d),join(input,d),{recursive:true});
   writeFileSync(join(input,'.env'),'SHOULD_NOT_COPY=1\n');mkdirSync(join(input,'data'));writeFileSync(join(input,'data','private.txt'),'do not copy');
   const output=await command([join(input,'install.sh'),'--source',input,'--dir',base,'--no-start']);
@@ -25,7 +25,7 @@ test('installer starts HTTP service, preserves config/orders on reinstall and st
   assert.equal(existsSync(join(base,'current','.env')),false);assert.equal(existsSync(join(base,'shared','data','private.txt')),false);
   const port=await freePort();writeFileSync(configPath,config.replace('PORT=3000','PORT='+port));
   manager=join(base,'bin','meridian');await command([manager,'start']);const url='http://127.0.0.1:'+port;
-  const c={name:'Installer test',email:'test@example.com',phone:'+12025550123',country:'US',postalCode:'02108',address:'Test address',items:[{id:'p1',quantity:1}]};
+  const c={name:'Installer test',email:'test@example.com',phone:'+12025550123',country:'US',state:'MA',postalCode:'02108',address:'Test address',items:[{id:'p1',quantity:1}]};
   const r=await fetch(url+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});assert.equal(r.status,201);const order=await r.json();
   const before=readFileSync(configPath,'utf8');
   await command([join(input,'install.sh'),'--source',input,'--dir',base]);

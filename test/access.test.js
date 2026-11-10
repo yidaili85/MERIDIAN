@@ -23,7 +23,7 @@ const adminCookie=async()=>(await fetch(S.base+'/api/login',{method:'POST',heade
 const post=async(path,body,cookie)=>fetch(S.base+path,{method:'POST',headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:JSON.stringify(body||{})});
 const put=async(path,body,cookie)=>fetch(S.base+path,{method:'PUT',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
 const store=async(cookie)=>(await fetch(S.base+'/api/store',{headers:cookie?{Cookie:cookie}:{}})).json();
-const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'12 Beacon St',country:'US',postalCode:'02108'};
+const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'12 Beacon St',country:'US',state:'MA',postalCode:'02108'};
 
 let admin,vipCookie;
 

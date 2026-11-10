@@ -23,7 +23,7 @@ after(()=>{S.child.kill();O.child.kill();rmSync(S.dir,{recursive:true,force:true
 const adminLogin=async(base)=>(await fetch(base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'test-password'})})).headers.get('set-cookie').split(';')[0];
 const post=(base,path,body,cookie)=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:JSON.stringify(body||{})});
 const put=(base,path,body,cookie)=>fetch(base+path,{method:'PUT',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
-const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'12 Beacon St',country:'US',postalCode:'02108'};
+const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'12 Beacon St',country:'US',state:'MA',postalCode:'02108'};
 const pay=(base,order,provider)=>post(base,'/api/orders/'+order.id+'/payment',{provider},undefined).then(r=>r);
 
 async function setup(base){

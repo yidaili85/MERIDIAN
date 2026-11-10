@@ -43,7 +43,7 @@ test('dashboard counts page views, unique visitors, product views, carts and ord
  assert.equal((await track({kind:'nonsense',id:'p1'})).status,204); // 静默忽略
 
  // 下单
- const order=await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',postalCode:'02108',items:[{id:'p1',quantity:2}]})});
+ const order=await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',state:'MA',postalCode:'02108',items:[{id:'p1',quantity:2}]})});
  assert.equal(order.status,201);
 
  const login=await fetch(S.base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'test-password'})});

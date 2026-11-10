@@ -41,7 +41,7 @@ const C=await start(mailEnv);
 const D=await start({PUBLIC_BASE_URL:'https://shop.example.com'});
 after(()=>{C.child.kill();D.child.kill();mock.close();rmSync(C.dir,{recursive:true,force:true});rmSync(D.dir,{recursive:true,force:true});});
 
-const customer={name:'Alex Doe',email:'alex@example.com',phone:'+1 202 555 0123',address:'12 Beacon St',country:'US',postalCode:'02108'};
+const customer={name:'Alex Doe',email:'alex@example.com',phone:'+1 202 555 0123',address:'12 Beacon St',country:'US',state:'MA',postalCode:'02108'};
 const order=async(base,items=[{id:'p1',quantity:1}])=>{
  const r=await fetch(base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...customer,items})});
  return {status:r.status,body:await r.json()};
