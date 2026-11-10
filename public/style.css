@@ -62,3 +62,11 @@
 .data-table th{text-align:left;font-weight:500;color:var(--muted);font-size:11px;border-bottom:1px solid var(--line);padding:9px 6px}
 .data-table td{padding:10px 6px;border-bottom:1px solid #f0f1ec}
 .data-table td:nth-child(n+2),.data-table th:nth-child(n+2){text-align:right}
+
+.side-home{display:block;margin:-22px 0 22px;padding:9px 12px;border:1px solid #ffffff26;color:#d7dfd5;font-size:11px;letter-spacing:.3px}
+.side-home:hover{background:#ffffff14;color:#fff}
+
+.detail-actions{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+.detail-actions .button{flex:1 1 150px}
+.muted.small{font-size:11px;letter-spacing:.2px;color:#5f675e;margin-top:2px}
+.buy-now-line{display:flex;justify-content:space-between;border:1px solid var(--line);padding:12px 14px;margin-bottom:16px;font-size:13px}
