@@ -2,7 +2,7 @@
 # MERIDIAN installer: Linux x86_64 / arm64, Node 24, no npm dependencies.
 set -Eeuo pipefail
 umask 077
-REPOSITORY_URL=${MERIDIAN_REPOSITORY_URL:-https://github.com/yidaili85/yidaili85.git}
+REPOSITORY_URL=${MERIDIAN_REPOSITORY_URL:-https://github.com/yidaili85/MERIDIAN.git}
 REF=${MERIDIAN_REF:-master}
 INSTALL_DIR=${MERIDIAN_INSTALL_DIR:-${HOME:?}/.local/share/meridian}
 SOURCE_DIR=''
@@ -32,7 +32,8 @@ done
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 log() { printf '%s\n' "$*"; }
 [[ $(uname -s) == Linux ]] || fail 'Linux is required (Debian 12+ / Ubuntu 22.04+ recommended).'
-[[ $EUID -ne 0 ]] || fail 'Run as a normal deployment user. Do not run the store as root.'
+[[ $EUID -ne 0 || ${MERIDIAN_ALLOW_ROOT:-0} == 1 ]] || fail 'Run as a normal deployment user. Do not run the store as root. (Override for throwaway test boxes only: MERIDIAN_ALLOW_ROOT=1 bash install.sh)'
+[[ $EUID -ne 0 ]] || printf 'WARNING: running as root because MERIDIAN_ALLOW_ROOT=1. Use a dedicated user in production.\n' >&2
 [[ $INSTALL_DIR == /* && $INSTALL_DIR != / && $INSTALL_DIR =~ ^/[a-zA-Z0-9._/-]+$ ]] || fail '--dir must be an absolute path without spaces or special characters.'
 for tool in curl git tar xz sha256sum mktemp sed awk chmod cp mv ln readlink nohup; do
   command -v "$tool" >/dev/null || fail "Missing $tool. On Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y ca-certificates curl git tar xz-utils coreutils"
@@ -51,10 +52,10 @@ trap cleanup EXIT
 trap 'printf "Installation failed at line %s; config and database have been preserved.\n" "$LINENO" >&2' ERR
 mkdir -p "$INSTALL_DIR/releases" "$INSTALL_DIR/shared/data" "$INSTALL_DIR/bin" "$INSTALL_DIR/runtime"
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-if [[ -z $SOURCE_DIR && -f $SCRIPT_DIR/server.js && -f $SCRIPT_DIR/payments.js ]]; then SOURCE_DIR=$SCRIPT_DIR; fi
+if [[ -z $SOURCE_DIR && -f $SCRIPT_DIR/server.js && -f $SCRIPT_DIR/payments.js && -f $SCRIPT_DIR/mailer.js ]]; then SOURCE_DIR=$SCRIPT_DIR; fi
 if [[ -n $SOURCE_DIR ]]; then
   SOURCE_DIR=$(cd -- "$SOURCE_DIR" && pwd -P)
-  [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/server.js && -f $SOURCE_DIR/payments.js && -d $SOURCE_DIR/public && -d $SOURCE_DIR/test && -f $SOURCE_DIR/scripts/meridian.sh ]] || fail 'Source is not a complete MERIDIAN checkout.'
+  [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/server.js && -f $SOURCE_DIR/payments.js && -f $SOURCE_DIR/mailer.js && -d $SOURCE_DIR/public && -d $SOURCE_DIR/test && -f $SOURCE_DIR/scripts/meridian.sh ]] || fail 'Source is not a complete MERIDIAN checkout.'
   log 'Using local project files (data and credentials will not be copied).'
 else
   log 'Cloning the repository using existing Git authentication…'
@@ -65,7 +66,7 @@ fi
 RELEASE_ID=$(date -u +%Y%m%dT%H%M%S)-$$
 RELEASE=$INSTALL_DIR/releases/$RELEASE_ID
 mkdir "$RELEASE"
-for file in package.json server.js payments.js README.md; do cp -- "$SOURCE_DIR/$file" "$RELEASE/$file"; done
+for file in package.json server.js payments.js mailer.js README.md .env.example; do cp -- "$SOURCE_DIR/$file" "$RELEASE/$file"; done
 cp -R -- "$SOURCE_DIR/public" "$SOURCE_DIR/test" "$RELEASE/"
 NODE=''
 if [[ -x $INSTALL_DIR/runtime/node/bin/node ]] && "$INSTALL_DIR/runtime/node/bin/node" -e 'process.exit(+process.versions.node.split(".")[0] >= 24 ? 0 : 1)' 2>/dev/null; then
