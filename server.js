@@ -6,6 +6,7 @@ import { createMailer, orderEmail } from './mailer.js';
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
 import {COUNTRIES, byCode, postcodeValid, stateList} from './countries.js';
+import { fileURLToPath } from 'node:url';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
 const uploadDir = resolve(dir,'uploads'); mkdirSync(uploadDir,{recursive:true});
 // 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
@@ -289,8 +290,10 @@ function seoHead(url,req){
 }
 const ASSET_FILES=['style.css','theme-tandorio.css','fonts.css','app.js','admin.js'];
 let assetVersion='';
+const SERVER_BUILD=(()=>{try{return Math.floor(statSync(fileURLToPath(import.meta.url)).mtimeMs).toString(36);}catch{return '0';}})();
 function assetV(){if(assetVersion)return assetVersion;try{assetVersion=ASSET_FILES.map(f=>Math.floor(statSync(resolve('public',f)).mtimeMs).toString(36)).join('').slice(0,10);}catch{assetVersion='1';}return assetVersion;}
-function withAssets(html){const v=assetV();return html.replace(/(href|src)="\/([a-z0-9.-]+\.(?:css|js))"/gi,(m,attr,f)=>`${attr}="/${f}?v=${v}"`);}
+function withAssets(html){const v=assetV();const out=html.replace(/(href|src)="\/([a-z0-9.-]+\.(?:css|js))"/gi,(m,attr,f)=>`${attr}="/${f}?v=${v}"`);
+ return out.replace('</head>',`<meta name="meridian-assets" content="${v}"><meta name="meridian-build" content="${SERVER_BUILD}"></head>`);}
 function renderIndex(url,req){return withAssets(readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+'</head>'));}
 const escHtml=(x)=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const policyList=()=>(content('published').pages||[]).filter(p=>p&&p.id);
@@ -592,6 +595,7 @@ const server=http.createServer(async(req,res)=>{
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
   }
+  if(url.pathname==='/api/version')return json(res,200,{build:SERVER_BUILD,assets:assetV()});
   if(url.pathname.startsWith('/api/'))return json(res,404,{error:'接口不存在'});
   if(!['GET','HEAD'].includes(req.method))return json(res,405,{error:'不支持此方法'});
   if(policyExists(url.pathname.replace(/^\//,''))){
