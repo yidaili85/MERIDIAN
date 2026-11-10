@@ -35,6 +35,33 @@ function mailSettings(){
  return settings;
 }
 function mailEnv(settings){return {...process.env,MAIL_PROVIDER:settings.provider,MAIL_API_KEY:settings.apiKey,MAIL_FROM:settings.from,MAIL_FROM_NAME:settings.fromName,MAIL_API_URL:settings.apiUrl,ORDER_NOTIFY_EMAIL:settings.notifyEmail,WHATSAPP_NUMBER:settings.whatsapp,MAIL_SMTP_HOST:settings.smtpHost,MAIL_SMTP_PORT:settings.smtpPort,MAIL_SMTP_SECURE:settings.smtpSecure,MAIL_SMTP_USER:settings.smtpUser,MAIL_SMTP_PASS:settings.smtpPass};}
+function visitorId(req,res){
+ const raw=String(req.headers.cookie||'');
+ const m=raw.match(/(?:^|;\s*)mid=([a-f0-9]{16,64})/);
+ if(m)return m[1];
+ const id=randomBytes(16).toString('hex');
+ const cookie=`mid=${id}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${process.env.COOKIE_SECURE==='true'?'; Secure':''}`;
+ const prev=res.getHeader('Set-Cookie');
+ res.setHeader('Set-Cookie',prev?[].concat(prev,cookie):cookie);
+ return id;
+}
+function sourceOf(req){
+ const ref=String(req.headers.referer||req.headers.referrer||'');
+ let host='';
+ try{host=new URL(ref).hostname.replace(/^www\./,'').toLowerCase();}catch{return 'direct';}
+ const self=String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim().split(':')[0].replace(/^www\./,'').toLowerCase();
+ if(!host||host===self)return 'direct';
+ if(/(^|\.)(google|bing|yahoo|duckduckgo|yandex|baidu|ecosia|brave|qwant)\.[a-z.]+$/.test(host))return 'search';
+ if(/(^|\.)(instagram|facebook|fb|tiktok|youtube|youtu|twitter|x|pinterest|reddit|linkedin|t\.co)\.[a-z.]+$/.test(host))return 'social';
+ if(/(^|\.)(mail|email|outlook|gmail|qq|163|126)\.[a-z.]+$/.test(host))return 'email';
+ return 'referral';
+}
+function trackEvent(kind,{ref='',vid='',source=''}={}){
+ const d=new Date();
+ db.prepare('INSERT INTO events (ts,day,hour,kind,ref,vid,source) VALUES (?,?,?,?,?,?,?)')
+  .run(d.toISOString(),d.toISOString().slice(0,10),d.getUTCHours(),String(kind).slice(0,24),String(ref).slice(0,64),String(vid).slice(0,64),String(source).slice(0,32));
+}
+const dayKey=(offset=0)=>{const d=new Date(Date.now()+offset*86400000);return d.toISOString().slice(0,10);};
 const currentMailer=()=>createMailer(mailEnv(mailSettings()));
 const mailView=()=>{const m=currentMailer(),st=mailSettings();return{enabled:m.enabled,provider:m.provider||st.provider,from:m.from||st.from,apiKeySet:Boolean(st.apiKey),apiKeyHint:st.apiKey?('••••'+st.apiKey.slice(-4)):'',fromName:st.fromName,apiUrl:st.apiUrl,notify:String(st.notifyEmail||'').split(',').map(x=>x.trim()).filter(Boolean),whatsapp:st.whatsapp,smtpHost:st.smtpHost,smtpPort:st.smtpPort,smtpSecure:String(st.smtpSecure)==='true',smtpUser:st.smtpUser,smtpPassSet:Boolean(st.smtpPass),source:st.source};};
 const db = new DatabaseSync(resolve(dir,'store.sqlite'));
@@ -64,6 +91,7 @@ function setCustomerCookie(res,id){
  res.setHeader('Set-Cookie',`meridian_customer=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
 }
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
+db.exec("CREATE TABLE IF NOT EXISTS events (ts TEXT NOT NULL, day TEXT NOT NULL, hour INTEGER NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL DEFAULT '', vid TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS events_lookup ON events(day,kind);");
 db.exec('CREATE TABLE IF NOT EXISTS mail_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
 if(!db.prepare('SELECT id FROM payment_config WHERE id=1').get())db.prepare('INSERT INTO payment_config VALUES (1,?)').run(JSON.stringify(defaults));
@@ -270,6 +298,50 @@ const server=http.createServer(async(req,res)=>{
     db.prepare('UPDATE customers SET level=? WHERE id=?').run(b.level,id);
     return json(res,200,{ok:true,level:b.level});
    }
+   if(url.pathname==='/api/admin/analytics'&&req.method==='GET'){
+    const span=Math.min(90,Math.max(1,Number(url.searchParams.get('days')||14)));
+    const hourly=url.searchParams.get('mode')==='hour';
+    const since=dayKey(-(span-1));
+    const rows=db.prepare('SELECT day,hour,kind,ref,vid,source FROM events WHERE day>=?').all(since);
+    const orders=db.prepare('SELECT created,details FROM orders WHERE created>=?').all(since+'T00:00:00.000Z');
+    const products=(content('published').products||[]);
+    const nameOf=id=>products.find(x=>x.id===id)?.name||id;
+
+    const bucket={};
+    const empty=()=>({pv:0,uv:new Set(),addcarts:0,orders:0,revenue:0,paid:0,payers:new Set()});
+    const dayBucket=d=>bucket[d]??(bucket[d]=empty());
+    const perDay=[];
+    for(let i=span-1;i>=0;i--){const d=dayKey(-i);perDay.push(d);dayBucket(d);}
+    const perHour=Array.from({length:24},(_,h)=>({hour:h,pv:0,uv:new Set()}));
+
+    for(const e of rows){
+     const b=dayBucket(e.day);
+     if(e.kind==='page'){b.pv++;b.uv.add(e.vid);if(hourly&&e.day===dayKey(0)){perHour[e.hour].pv++;perHour[e.hour].uv.add(e.vid);}}
+     if(e.kind==='addcart')b.addcarts++;
+    }
+    const topViews=new Map(),topCarts=new Map();
+    for(const e of rows){
+     if(e.kind==='product'){topViews.set(e.ref,(topViews.get(e.ref)||0)+1);}
+     if(e.kind==='addcart'){topCarts.set(e.ref,(topCarts.get(e.ref)||0)+1);}
+    }
+    const perProduct=new Map();
+    for(const o of orders){
+     const d=o.created.slice(0,10),b=dayBucket(d),det=JSON.parse(o.details);
+     b.orders++;
+     const paid=det.status==='Paid';
+     if(paid){b.revenue+=Number(det.total||0);b.paid++;if(det.customerId||det.email)b.payers.add(det.customerId||det.email);}
+     for(const it of det.items||[]){const cur=perProduct.get(it.id)||{orders:0,units:0,revenue:0};cur.orders++;cur.units+=it.quantity;if(paid)cur.revenue+=Number(it.price||0)*Number(it.quantity||0);perProduct.set(it.id,cur);}
+    }
+    const pack=(b)=>({pv:b.pv,uv:b.uv.size,addcarts:b.addcarts,orders:b.orders,revenue:Number(b.revenue.toFixed(2)),paid:b.paid,payers:b.payers.size,conversion:b.uv.size?Number((b.orders/b.uv.size*100).toFixed(2)):0});
+    const series=perDay.map(d=>({day:d,...pack(dayBucket(d))}));
+    const hours=hourly?perHour.map(h=>({hour:h.hour,pv:h.pv,uv:h.uv.size})):[];
+    const totals=series.reduce((a,x)=>({pv:a.pv+x.pv,orders:a.orders+x.orders,revenue:Number((a.revenue+x.revenue).toFixed(2)),addcarts:a.addcarts+x.addcarts,uv:a.uv+x.uv}),{pv:0,orders:0,revenue:0,addcarts:0,uv:0});
+    const src={};for(const e of rows)if(e.kind==='page')src[e.source]=(src[e.source]||0)+1;
+    const sources=Object.entries(src).map(([k,v])=>({source:k,pv:v,share:totals.pv?Number((v/totals.pv*100).toFixed(1)):0})).sort((a,b)=>b.pv-a.pv);
+    const topProducts=[...new Set([...topViews.keys(),...topCarts.keys(),...perProduct.keys()])].map(id=>({id,name:nameOf(id),views:topViews.get(id)||0,addcarts:topCarts.get(id)||0,orders:perProduct.get(id)?.orders||0,units:perProduct.get(id)?.units||0,revenue:Number((perProduct.get(id)?.revenue||0).toFixed(2))})).sort((a,b)=>b.views-a.views||b.orders-a.orders).slice(0,12);
+    const today=pack(dayBucket(dayKey(0))),yesterday=pack(dayBucket(dayKey(-1)));
+    return json(res,200,{days:span,series,hours,sources,topProducts,totals,today,yesterday});
+   }
    if(url.pathname==='/api/admin/mail'&&req.method==='GET')return json(res,200,mailView());
    if(url.pathname==='/api/admin/mail'&&req.method==='PUT'){
     const b=await body(req),cur=mailSettings();
@@ -380,6 +452,14 @@ const server=http.createServer(async(req,res)=>{
    const viewer=customerFromReq(req);
    return viewer?json(res,200,viewer):json(res,401,{error:'未登录'});
   }
+  if(url.pathname==='/api/track'&&req.method==='POST'){
+   const b=await body(req);
+   const kind=['product','category','addcart'].includes(b.kind)?b.kind:'';
+   if(!kind)return json(res,204,{});
+   const vid=visitorId(req,res);
+   trackEvent(kind,{ref:String(b.id||'').slice(0,64),vid,source:sourceOf(req)});
+   return json(res,204,{});
+  }
   if(url.pathname==='/api/store'&&req.method==='GET'){
    const viewer=customerFromReq(req);
    const c=content(url.searchParams.has('preview')&&auth(req)?'draft':'published');
@@ -430,7 +510,10 @@ const server=http.createServer(async(req,res)=>{
   }
   const file=url.pathname==='/admin'?'admin.html':url.pathname==='/'?'index.html':url.pathname.slice(1);
   if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
-  if(file==='index.html'){res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url,req));}
+  if(file==='index.html'){
+   if(req.method==='GET'){try{const vid=visitorId(req,res);trackEvent('page',{vid,source:sourceOf(req)});}catch{}}
+   res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url,req));
+  }
   res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);res.end(readFileSync(resolve('public',file)));
  }catch(e){json(res,400,{error:e.message||'请求失败'});}
 });
