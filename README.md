@@ -4,115 +4,106 @@
 
 ---
 
-## 1. 功能一览
+## 1. 安装（三选一，都是三条命令）
 
-**前台**：响应式首页、分类、搜索、价格排序、商品详情、购物袋、EN/DE/ES 切换、USD 计价、商品图集 + 全屏放大（滚轮缩放 / 左右切换 / ESC）、WhatsApp 悬浮客服、页脚支付图标。
+仓库默认分支就是最新代码，**直接 clone，不用指定分支**。
 
-**后台 `/admin`**：页面设计（品牌、主视觉、公告、服务文案、页脚、三语言）、商品增删改 / 库存 / 多语言 / 多图上传、分类管理、订单记录、支付设置、用户管理（普通 / VIP）、通知邮件测试。
-
-**会员与可见性**：商品和分类都带观看等级（公开 / 登录会员 / VIP），未获授权的商品**不进列表、不进 sitemap**，只能通过后台复制的 `/?product=<id>` 或 `/?category=<id>` 链接直达；直链按等级放行，未授权返回 403 且不泄露名称 / 图片 / 价格、页面 noindex。加购与下单服务端二次校验。
-
-**支付**：PayPal 官方收银台 + USDT 钱包直收人工核账。默认规则：普通订单只能 PayPal，含 VIP 商品的订单只能 USDT（`PAYMENT_RULES=off` 可关闭）。
-
-**其他**：下单确认邮件、未支付订单超时返库、草稿 / 预览 / 发布、SEO（canonical / Open Graph / JSON-LD / robots / sitemap）、CSP / HSTS 等安全响应头、登录限速、scrypt 密码哈希。
-
----
-
-## 2. 快速开始
-
-### 方式 A：Docker（推荐，最快）
+### ① Docker（最快，推荐）
 
 ```bash
-git clone -b feature/hardening-seo https://github.com/yidaili85/MERIDIAN.git meridian-store
+git clone https://github.com/yidaili85/MERIDIAN.git meridian-store
 cd meridian-store
 bash scripts/quickstart-docker.sh
 ```
 
-脚本会：生成 `.env`（含随机管理员密码）→ 构建镜像 → 后台启动 → 等 `/healthz` 通过 → 打印地址。
+脚本自动：生成 `.env`（随机管理员密码）→ 构建镜像 → 后台启动 → 等健康检查通过 → 打印地址。
 
 - 前台 http://127.0.0.1:3000/
 - 后台 http://127.0.0.1:3000/admin
 - 密码 `grep ADMIN_PASSWORD .env`
 
-手动等价命令：
+没装 Docker：`curl -fsSL https://get.docker.com | sh`
+
+停止 / 查看：`docker compose down`（数据在卷里不会丢）、`docker compose logs -f meridian`。
+
+### ② Node 直跑（不用 Docker）
+
+需要 Node.js **24+**，不需要 `npm install`。
 
 ```bash
-cp .env.example .env          # 填 ADMIN_PASSWORD
-docker compose up -d --build
-docker compose logs -f meridian
-docker compose down           # 停止；数据在 meridian-data 卷里，不会丢
-```
-
-数据卷位置：`docker volume inspect meridian-store_meridian-data`。备份 = 导出该卷（或 `docker compose exec meridian` 里打包 `/data`）。
-
-### 方式 B：源码直跑（不用 Docker）
-
-需要 Node.js **24+**（`node -v` 确认，需带 `node:sqlite`），**无需 `npm install`**。
-
-```bash
-git clone -b feature/hardening-seo https://github.com/yidaili85/MERIDIAN.git meridian-store
+git clone https://github.com/yidaili85/MERIDIAN.git meridian-store
 cd meridian-store
 bash scripts/quickstart-local.sh
 ```
 
-脚本生成 `.env` 后以 `node --env-file=.env server.js` 前台启动，`Ctrl-C` 停止。数据默认在 `./data`（SQLite + `uploads/`）。
+前台运行，`Ctrl-C` 停止，数据在 `./data`。密码同上 `grep ADMIN_PASSWORD .env`。
 
-### 方式 C：Linux 服务器一键安装（长期运行）
-
-支持 Linux x86_64 / arm64，推荐 Debian 12+ / Ubuntu 22.04+（glibc）。用普通部署用户运行，脚本不会以 root 启动网站，也不改系统 Node。
+没有 Node 时：
 
 ```bash
-git clone -b feature/hardening-seo git@github.com:yidaili85/MERIDIAN.git meridian-store
-bash meridian-store/install.sh
+# Debian / Ubuntu
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs
+# macOS
+brew install node
 ```
 
-脚本会：
-
-1. 用现有 Node 24+，或安装独立 Node 24（核对官方 SHA256）。
-2. 复制程序到独立版本目录并跑测试；不复制源码里的 `.env` 或 `data/`。
-3. 首次生成管理员密码写入 `shared/config.env`（600 权限，不打印，保留不覆盖）。
-4. 后台启动并检查真实 HTTP 接口；失败保留数据并回滚到上一版本代码。
+### ③ 服务器长期运行（版本目录 + 进程守护）
 
 ```bash
-~/.local/share/meridian/bin/meridian {status|restart|stop|logs}
-bash install.sh --dir /home/deploy/meridian   # 自定义位置
-bash install.sh --no-start                    # 只装不启动
-git -C meridian-store pull --ff-only && bash meridian-store/install.sh   # 升级
+git clone https://github.com/yidaili85/MERIDIAN.git meridian-store
+cd meridian-store
+bash install.sh
 ```
 
-默认目录 `~/.local/share/meridian`：`current`（当前版本软链）、`releases/`、`shared/data/`（数据库）、`shared/config.env`（配置）、`shared/server.log`（日志）。配置由 `--env-file` 读取，**不要 `source`**。改配置后 `meridian restart`。
+装完：
 
-开机自启（`crontab -e`，路径换真实绝对路径）：
+- 密码 `grep ADMIN_PASSWORD ~/.local/share/meridian/shared/config.env`
+- 管理 `~/.local/share/meridian/bin/meridian {status|restart|stop|logs}`
+- 升级 `cd meridian-store && git pull && bash install.sh`（保留商品、订单、密码）
+- 自定义目录 `bash install.sh --dir /home/deploy/meridian`
 
-```cron
-@reboot /home/deploy/.local/share/meridian/bin/meridian start
-```
+脚本会自动准备 Node 24（核对官方 SHA256）、跑测试、生成配置、启动并验证 HTTP；启动失败保留数据并回滚代码。
 
-私有仓库不适用匿名 `curl raw.githubusercontent.com/... | bash`；不要把访问令牌写进安装命令或发到聊天。
-
-**如果你 SSH 登录的是 root**，`install.sh` 会拒绝执行（不建议网站跑在 root 下）。三条路：
+**用 root 登录的机器**：默认拒绝执行。测试机可 `MERIDIAN_ALLOW_ROOT=1 bash install.sh`；正式环境建议建部署用户：
 
 ```bash
-# 1) 建一个部署用户，之后都用它（生产推荐）
 adduser --disabled-password --gecos "" meridian
-su - meridian -c 'git clone -b feature/hardening-seo https://github.com/yidaili85/MERIDIAN.git ~/meridian-store && bash ~/meridian-store/install.sh'
-
-# 2) 用 Docker 跑（容器内已是非 root 的 app 用户）
-cd ~/meridian-store && bash scripts/quickstart-docker.sh
-
-# 3) 只是想快速看效果，临时允许 root（仅测试机）
-MERIDIAN_ALLOW_ROOT=1 bash install.sh
+su - meridian -c 'git clone https://github.com/yidaili85/MERIDIAN.git ~/meridian-store && bash ~/meridian-store/install.sh'
 ```
+
+### 看不到页面？（在远程服务器上）
+
+服务只监听 `127.0.0.1`。本机开一条隧道即可：
+
+```bash
+ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
+```
+
+然后浏览器打开 http://127.0.0.1:3000/ 。正式对外用 Nginx / Caddy 反代 + HTTPS，并在配置里设 `PUBLIC_BASE_URL=https://你的域名`、`COOKIE_SECURE=true`。
 
 ---
 
-## 3. 首次登录与上手顺序
+## 2. 首次登录与上手顺序
 
-1. 打开 `/admin`，输入 `ADMIN_PASSWORD`（`.env` 或 `shared/config.env`）。会话 8 小时过期；未设置密码时每次启动生成临时密码，只打印在启动日志。
-2. 后台 → 页面设计：品牌名、主视觉、公告、服务文案、WhatsApp 号码（带国家区号，启用后生效）、页脚内容。
-3. 后台 → 商品分类：建分类；需要锁定的选「观看等级」，可复制**分类链接**。
+1. 打开 `/admin`，输入 `ADMIN_PASSWORD`。会话 8 小时过期；没设密码时每次启动生成临时密码，只打印在启动日志。
+2. 后台 → 页面设计：品牌名、主视觉、公告、服务文案、WhatsApp 号码（带国家区号，启用后生效）、页脚。
+3. 后台 → 商品分类：建分类；要锁定的选「观看等级」，可复制**分类链接**。
 4. 后台 → 商品管理：加商品、传图（PNG/JPEG/WebP ≤5MB）、价格库存、观看等级；编辑页可复制**商品链接**。
 5. 保存**草稿** → 授权预览 → **发布**。前台只显示已发布内容。
+
+---
+
+## 3. 功能
+
+**前台**：响应式首页、分类、搜索、价格排序、详情、购物袋、EN/DE/ES、USD 计价、商品图集 + 全屏放大（滚轮缩放 / 左右切换 / ESC）、WhatsApp 悬浮客服、页脚支付图标。
+
+**后台**：页面设计与三语言内容、商品增删改 / 库存 / 多图上传、分类管理、订单记录、支付设置、用户管理（普通 / VIP）、通知邮件测试。
+
+**会员与可见性**：商品和分类都带观看等级（公开 / 登录会员 / VIP），未获授权的商品**不进列表、不进 sitemap**，只能通过后台复制的 `/?product=<id>` 或 `/?category=<id>` 直达；直链按等级放行，未授权返回 403 且不泄露名称 / 图片 / 价格、页面 noindex。加购与下单服务端二次校验。
+
+**支付**：PayPal 官方收银台 + USDT 直收人工核账。默认规则：普通订单只能 PayPal，含 VIP 商品的订单只能 USDT（`PAYMENT_RULES=off` 关闭）。
+
+**其他**：下单确认邮件、未支付订单超时返库、草稿 / 预览 / 发布、SEO（canonical / Open Graph / JSON-LD / robots / sitemap）、CSP / HSTS 等安全头、登录限速、scrypt 密码哈希、`/healthz` 探活。
 
 ---
 
@@ -133,7 +124,7 @@ MERIDIAN_ALLOW_ROOT=1 bash install.sh
 | `ORDER_NOTIFY_EMAIL` | 空 | 店主抄送，逗号分隔 |
 | `WHATSAPP_NUMBER` | 空 | 邮件里显示的客服号 |
 
-模板见 `.env.example`。密钥只放环境变量或 `.env`，不要进 Git。
+模板见 `.env.example`。密钥只放环境变量或 `.env`，不要进 Git、不要发聊天。
 
 ---
 
@@ -146,19 +137,19 @@ MERIDIAN_ALLOW_ROOT=1 bash install.sh
 - 无权用户：列表、导航、筛选、接口、sitemap 全部不下发该商品 / 分类。
 - 授权访问靠链接直达：商品 `/?product=<id>`、类目 `/?category=<id>`，后台编辑页一键复制。
 
-自测流程：注册一个账号 → 后台把它设为 VIP → 用该账号打开 VIP 商品或类目链接 → 对比未登录时的效果。
+自测：注册账号 → 后台设为 VIP → 用该账号打开 VIP 商品或类目链接 → 对比未登录效果。
 
 ---
 
 ## 6. PayPal 对接
 
-1. PayPal Developer 创建 REST App（Sandbox 或 Live），注入 `PAYPAL_CLIENT_ID`、`PAYPAL_CLIENT_SECRET`；不要写入前端、Git 或聊天。
+1. PayPal Developer 创建 REST App（Sandbox 或 Live），注入 `PAYPAL_CLIENT_ID`、`PAYPAL_CLIENT_SECRET`。
 2. 设置 `PUBLIC_BASE_URL=https://你的域名`（HTTPS 根域名，不带路径），配好反代，`COOKIE_SECURE=true`。
 3. 该 App 注册 Webhook `https://你的域名/api/payments/paypal/webhook`，订阅 `PAYMENT.CAPTURE.COMPLETED`，把 Webhook ID 填进 `PAYPAL_WEBHOOK_ID`。
-4. 后台 → 支付设置：选 Sandbox，启用 PayPal。前台只有配置齐全才显示该方式；「已注入」只代表变量存在，不代表商户鉴权通过。
-5. 用沙箱买家走完整流程；上线时整体替换为 Live 凭证、Webhook ID 与后台环境选项。不要在有未完成支付时更换凭证。
+4. 后台 → 支付设置：选 Sandbox，启用 PayPal。配置不齐前台不显示该方式；「已注入」只代表变量存在，不代表商户鉴权通过。
+5. 用沙箱买家走完整流程；上线时整体替换 Live 凭证与后台环境选项，不要在有未完成支付时更换凭证。
 
-服务端按已保存金额创建 PayPal Order，浏览器跳官方收银台；回跳或签名验证通过的回调到达后，服务端查询 / 捕获并核对商户订单引用、实际扣款金额与 USD 币种，只有真实扣款才标记 Paid，重复回跳与回调幂等。创建与捕获使用固定幂等键。官方文档：[Orders v2](https://developer.paypal.com/docs/api/orders/v2/)、[Webhook 验签](https://developer.paypal.com/docs/api/webhooks/v1/#verify-webhook-signature_post)。
+服务端按已保存金额创建 PayPal Order，浏览器跳官方收银台；回跳或签名验证通过的回调到达后，服务端查询 / 捕获并核对商户订单引用、金额与 USD 币种，真实扣款才标记 Paid，重复回跳幂等。官方文档：[Orders v2](https://developer.paypal.com/docs/api/orders/v2/)、[Webhook 验签](https://developer.paypal.com/docs/api/webhooks/v1/#verify-webhook-signature_post)。
 
 当前使用 `NO_SHIPPING`，收货资料保存在本地订单；未接入 PayPal 地址映射与卖家保障资格处理。
 
@@ -166,9 +157,9 @@ MERIDIAN_ALLOW_ROOT=1 bash install.sh
 
 ## 7. USDT 直收与人工核账
 
-后台 → 支付设置：选 **TRC20** 或 **ERC20**，填公开收款地址与 `1 USD = ? USDT` 比例后启用。不需要私钥，也不查询链上到账。TRC20 校验 Base58Check、ERC20 校验基本格式，均不证明地址归属。
+后台 → 支付设置：选 **TRC20** 或 **ERC20**，填公开收款地址与 `1 USD = ? USDT` 比例后启用。不需要私钥，也不查询链上到账。
 
-每笔支付快照当时的网络、地址、六位小数应付金额与比例，之后改配置不影响已创建的支付单。报价是商家设定的固定比例，非市场实时汇率。状态：
+每笔支付快照当时的网络、地址、六位小数应付金额与比例，之后改配置不影响已创建支付单。报价是商家设定的固定比例，非市场实时汇率。状态：
 
 - `pending`：等待转账
 - `awaiting_review`：买家已提交哈希，尚未确认（可更正）
@@ -176,13 +167,13 @@ MERIDIAN_ALLOW_ROOT=1 bash install.sh
 
 管理员必须在区块浏览器核对真实 USDT 合约、地址、金额、成功状态与确认数。**提交哈希不等于到账**；同一网络同一哈希只能确认一个订单。合并小额、超付、退款、错链错币需商家自行处理。私钥与助记词不应进入网站。
 
-订单访问令牌只存在创建订单标签页的 `sessionStorage`，不出现在回跳 URL。关掉标签页后暂无邮件恢复链接。
+订单访问令牌只存在创建订单标签页的 `sessionStorage`，不出现在回跳 URL；关掉标签页后暂无邮件恢复链接。
 
 ---
 
 ## 8. 部署与安全
 
-- 服务只监听 `127.0.0.1`，公网请用 Nginx / Caddy 反代到 `127.0.0.1:3000` 并配 HTTPS；`HOST=0.0.0.0` 只在容器内使用。
+- 服务只监听 `127.0.0.1`，公网用 Nginx / Caddy 反代到 `127.0.0.1:3000` 并配 HTTPS；`HOST=0.0.0.0` 只在容器内使用。
 - 后台建议再加一层：Basic Auth + IP 白名单，或只走 VPN。
 - 备份：停止服务后打包 `DATA_DIR`（SQLite + `uploads/`），或用 SQLite 在线备份。
 - 已有措施：CSP、HSTS（HTTPS 时）、`X-Frame-Options`、`Permissions-Policy`、同源 CSRF 校验（兼容反代）、登录限速、scrypt 哈希、订单访问令牌。
@@ -197,7 +188,7 @@ docker compose run --rm meridian npm test     # 容器内跑
 curl -s http://127.0.0.1:3000/healthz         # 健康检查
 ```
 
-覆盖：服务端核价与库存事务、授权与草稿隔离、发布、图片上传、邮件、PayPal 模拟接口（金额 / 幂等 / 验签失败）、USDT 快照与人工确认、会员等级、分类等级、支付方式规则、静态与 SEO 输出。全部使用临时数据库与虚拟交易，不接触真实资金。
+覆盖：服务端核价与库存事务、授权与草稿隔离、发布、图片上传、邮件、PayPal 模拟接口（金额 / 幂等 / 验签失败）、USDT 快照与人工确认、会员等级、分类等级、支付方式规则、静态与 SEO 输出。全部使用临时数据库与虚拟交易。
 
 ---
 
@@ -216,6 +207,7 @@ install.sh              Linux 一键安装（版本目录 + 回滚）
 Dockerfile / docker-compose.yml / .dockerignore
 .env.example            配置模板
 ```
+
 
 ---
 
