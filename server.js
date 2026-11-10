@@ -120,6 +120,19 @@ const cleanShipping=(raw)=>{
  const freeOver=Math.min(5000000,Math.max(0,Math.round(Number(c.freeOver)||0)));
  return {mode,percent:Math.round(percent*100)/100,flat,freeOver};
 };
+// 早期版本把运费按“分”写进订单，读取时会显示成 100 倍。这里做一次性修正。
+try{
+ const rows=db.prepare('SELECT id,details FROM orders').all();
+ const fix=db.prepare('UPDATE orders SET details=? WHERE id=?');
+ for(const r of rows){
+  let d;try{d=JSON.parse(r.details)||{};}catch{continue;}
+  const ship=Number(d.shipping||0),total=Number(d.total||0);
+  if(ship>total&&ship>0){
+   d.shipping=Math.round(ship)/100;
+   fix.run(JSON.stringify(d),r.id);
+  }
+ }
+}catch{}
 const shippingCents=(itemsCents,cfg)=>{
  const c=cleanShipping(cfg||shippingConfig());
  if(c.mode==='free')return 0;
@@ -327,7 +340,7 @@ const SERVER_BUILD=(()=>{try{return Math.floor(statSync(fileURLToPath(import.met
 function assetV(){if(assetVersion)return assetVersion;try{assetVersion=ASSET_FILES.map(f=>Math.floor(statSync(resolve('public',f)).mtimeMs).toString(36)).join('').slice(0,10);}catch{assetVersion='1';}return assetVersion;}
 function withAssets(html){const v=assetV();const out=html.replace(/(href|src)="\/([a-z0-9.-]+\.(?:css|js))"/gi,(m,attr,f)=>`${attr}="/${f}?v=${v}"`);
  return out.replace('</head>',`<meta name="meridian-assets" content="${v}"><meta name="meridian-build" content="${SERVER_BUILD}"></head>`);}
-function renderIndex(url,req){const extra=url.pathname==='/account'?'<meta name="robots" content="noindex,follow">':'';return withAssets(readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+extra+'</head>'));}
+function renderIndex(url,req){const extra=(url.pathname==='/account'||url.pathname==='/pay')?'<meta name="robots" content="noindex,follow">':'';return withAssets(readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+extra+'</head>'));}
 const escHtml=(x)=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const policyList=()=>(content('published').pages||[]).filter(p=>p&&p.id);
 function policyExists(name){return policyList().some(p=>p.id===name);}
@@ -425,7 +438,7 @@ const server=http.createServer(async(req,res)=>{
    const rule=cleanShipping({...cleanShipping(d.shippingRule||shippingConfig()),...(b.rule||b)});
    const itemsCents=Math.round((d.items||[]).reduce((n,i)=>n+(Number(i.price)||0)*(Number(i.quantity)||0),0)*100);
    const shipping=shippingCents(itemsCents,rule);
-   d.shippingRule=rule;d.shipping=shipping;d.total=Math.round(itemsCents+shipping)/100;
+   d.shippingRule=rule;d.shipping=Math.round(shipping)/100;d.total=Math.round(itemsCents+shipping)/100;
    db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(d),id);
    return json(res,200,{ok:true,shipping:shipping/100,total:d.total,rule});
   }
@@ -571,6 +584,19 @@ const server=http.createServer(async(req,res)=>{
    const event=await body(req);await verifyPayPalWebhook(event,req.headers,paymentConfig(),process.env);
    if(event.event_type==='PAYMENT.CAPTURE.COMPLETED'){const providerId=event.resource?.supplementary_data?.related_ids?.order_id;const row=db.prepare("SELECT order_id FROM payments WHERE json_extract(details,'$.provider')='paypal' AND json_extract(details,'$.providerId')=?").get(providerId||'');if(row)await locked(row.order_id,async()=>{const p=getPayment(row.order_id);if(p.status!=='paid'){const transaction=await capturePayPal(p,row.order_id,process.env);if(transaction)markPaid(row.order_id,transaction);}});}
    return json(res,200,{ok:true});
+  }
+  const summaryRoute=url.pathname.match(/^\/api\/orders\/([^/]+)\/summary$/);
+  if(summaryRoute&&req.method==='GET'){
+   const id=decodeURIComponent(summaryRoute[1]),token=req.headers.authorization?.replace(/^Bearer /,'');
+   const access=db.prepare('SELECT token_hash FROM order_access WHERE order_id=?').get(id);
+   if(!token||!access||digest(token)!==access.token_hash)return json(res,403,{error:'Order access denied'});
+   const row=db.prepare('SELECT id,created,details FROM orders WHERE id=?').get(id);
+   if(!row)return json(res,404,{error:'订单不存在'});
+   const d=JSON.parse(row.details)||{};
+   const pay=getPayment(id);
+   return json(res,200,{id:row.id,created:row.created,status:d.status,items:d.items||[],shipping:d.shipping||0,total:d.total,currency:'USD',
+    address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''},
+    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),allowed:allowedProviders(paymentConfig(),process.env,PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)),payment:pay?paymentView(pay):null});
   }
   const paymentRoute=url.pathname.match(/^\/api\/orders\/([^/]+)\/(payment|capture|transaction)$/);
   if(paymentRoute){
@@ -734,7 +760,7 @@ const server=http.createServer(async(req,res)=>{
    res.setHeader('Cache-Control','public, max-age=31536000, immutable');
    return res.end(readFileSync(f));
   }
-  const file=url.pathname==='/admin'?'admin.html':(url.pathname==='/'||url.pathname==='/account')?'index.html':url.pathname.slice(1);
+  const file=url.pathname==='/admin'?'admin.html':(url.pathname==='/'||url.pathname==='/account'||url.pathname==='/pay')?'index.html':url.pathname.slice(1);
   if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg','assets/favicon.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
   if(file==='index.html'){
    if(req.method==='GET'){try{const vid=visitorId(req,res);trackEvent('page',{vid,source:sourceOf(req)});}catch{}}

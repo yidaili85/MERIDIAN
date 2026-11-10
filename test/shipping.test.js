@@ -89,3 +89,27 @@ test('shipping endpoints reject anonymous callers',async()=>{
  assert.equal((await json('/api/admin/shipping')).status,401);
  assert.equal((await json('/api/admin/orders/'+encodeURIComponent(orderId)+'/shipping',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rule:{mode:'free'}})})).status,401);
 });
+
+test('/pay is a standalone page and the order summary reports shipping in dollars',async()=>{
+ const page=await json('/pay');
+ assert.equal(page.status,200);
+ assert.match(await page.text(),/<meta name="robots" content="noindex/);
+ const list=await (await json('/api/admin/orders',{headers:{Cookie:cookie}})).json();
+ const o=list.find(x=>x.id===orderId);
+ const items=Math.round((o.details.items||[]).reduce((n,i)=>n+i.price*i.quantity,0)*100);
+ await json('/api/admin/orders/'+encodeURIComponent(orderId)+'/shipping',{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify({rule:{mode:'percent',percent:10}})});
+ const rows=await (await json('/api/admin/orders',{headers:{Cookie:cookie}})).json();
+ const fresh=rows.find(x=>x.id===orderId);
+ assert.equal(Math.round(fresh.details.shipping*100),Math.round(items*10/100),'shipping is stored in dollars, not cents');
+ const reg=await json('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'p@example.com',name:'P',password:'customerpass123'})});
+ const customerCookie=reg.headers.get('set-cookie').split(';')[0];
+ const owner=await json('/api/account/orders/'+encodeURIComponent(orderId)+'/access',{method:'POST',headers:{Cookie:customerCookie}});
+ const {accessToken}=await owner.json();
+ const sum=await json('/api/orders/'+encodeURIComponent(orderId)+'/summary',{headers:{Authorization:'Bearer '+accessToken}});
+ assert.equal(sum.status,200);
+ const data=await sum.json();
+ assert.equal(Math.round(data.shipping*100),Math.round(items*10/100));
+ assert.equal(Math.round(data.total*100),items+Math.round(items*10/100));
+ assert.ok(data.address&&data.address.city);
+ assert.equal((await json('/api/orders/'+encodeURIComponent(orderId)+'/summary')).status,403);
+});
