@@ -87,6 +87,9 @@ const customerFromReq=(req)=>{
   return {id:row.id,email:row.email,name:row.name,level:row.level};
  }catch{return null;}
 };
+// 后台已登录的管理员：前台可见全部商品（含 VIP / 会员专属），仅用于自己浏览与核对。
+const adminViewer={id:'admin',email:'',name:'管理员',level:'vip',admin:true};
+const viewerFromReq=(req)=>{try{return auth(req)?adminViewer:customerFromReq(req);}catch{return customerFromReq(req);}};
 function setCustomerCookie(res,id){
  const token=randomBytes(32).toString('hex');
  db.prepare('INSERT INTO customer_sessions VALUES (?,?,?)').run(digest(token),id,Date.now()+30*86400000);
@@ -560,12 +563,14 @@ const server=http.createServer(async(req,res)=>{
    return json(res,204,{});
   }
   if(url.pathname==='/api/store'&&req.method==='GET'){
-   const viewer=customerFromReq(req);
+   const viewer=viewerFromReq(req);
    const c=content(url.searchParams.has('preview')&&auth(req)?'draft':'published');
    const catMap=categoryAccessMap(c);
    c.products=c.products.filter(p=>p.active&&canView(effectiveAccess(p,catMap),viewer)).map(p=>({...p,access:effectiveAccess(p,catMap),locked:false}));
    c.categories=(c.categories||[]).filter(x=>canView(catMap.get(x.id),viewer));
-   c.viewer=viewer?{email:viewer.email,level:viewer.level,name:viewer.name}:null;
+   const realViewer=customerFromReq(req);
+   c.viewer=realViewer?{email:realViewer.email,level:realViewer.level,name:realViewer.name}:null;
+   c.adminView=Boolean(auth(req));
    c.countries=COUNTRIES.map(({code,name,postal,states})=>({code,name,pattern:postal?postal.source:'',states:states?stateList(code).map(([sc,sn])=>({code:sc,name:sn})):null}));
    c.contactEmail=process.env.ORDER_NOTIFY_EMAIL||'';
    return json(res,200,c);
@@ -583,7 +588,7 @@ const server=http.createServer(async(req,res)=>{
   }
   if(url.pathname.startsWith('/api/products/')&&req.method==='GET'){
    const id=decodeURIComponent(url.pathname.slice('/api/products/'.length));
-   const viewer=customerFromReq(req);
+   const viewer=viewerFromReq(req);
    const p=content('published').products.find(x=>x.id===id&&x.active);
    if(!p)return json(res,404,{error:'商品不存在或已下架'});
    const access=effectiveAccess(p,categoryAccessMap(content('published')));
@@ -599,7 +604,7 @@ const server=http.createServer(async(req,res)=>{
    if(!b.name?.trim()||!b.phone?.trim()||!b.address?.trim()||!Array.isArray(b.items)||!b.items.length||b.items.length>100)return json(res,400,{error:'Please complete your shipping information and select a product'});
    if([b.name,b.phone,b.address].some(x=>typeof x!=='string'||x.length>500))throw Error('Shipping information is too long');
    const c=content('published'),draft=content('draft'),seen=new Set();let total=0,hasVipItem=false;
-   const viewer=customerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');const itemAccess=effectiveAccess(p,catMap);if(!canView(itemAccess,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');if(itemAccess==='vip')hasVipItem=true;seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
+   const viewer=viewerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');const itemAccess=effectiveAccess(p,catMap);if(!canView(itemAccess,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');if(itemAccess==='vip')hasVipItem=true;seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
    const shipping=total>=15000?0:1200;const details={...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:(hasVipItem?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});

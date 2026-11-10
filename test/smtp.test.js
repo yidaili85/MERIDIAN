@@ -59,7 +59,14 @@ function startServer(env){
   setTimeout(()=>reject(Error('Startup timed out')),10000).unref();
  });
 }
-const S=await startServer({});
+async function startWithRetry(attempts=3){
+ let last;
+ for(let i=0;i<attempts;i++){
+  try{return await startServer({});}catch(e){last=e;await new Promise(r=>setTimeout(r,400));}
+ }
+ throw last;
+}
+const S=await startWithRetry();
 after(()=>{S.child.kill();smtp.close();rmSync(S.dir,{recursive:true,force:true});});
 
 test('smtpSend delivers a multipart message over AUTH LOGIN',async()=>{

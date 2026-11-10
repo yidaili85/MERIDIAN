@@ -176,14 +176,14 @@ bind(document.querySelector('#global'),content);bind(document.querySelector('#lo
  <div class="panel prod-table-wrap"><table class="prod-table"><thead><tr><th class="c-check"><input type="checkbox" id="check-all" ${pageItems.length&&pageItems.every(p=>prodSel.has(p.id))?'checked':''}></th><th>图片</th><th>名称</th><th>价格</th><th>库存</th><th>分类</th><th>权限</th><th>状态</th><th class="c-ops">操作</th></tr></thead><tbody>
  ${pageItems.map(p=>`<tr class="${prodOpen.has(p.id)?'open':''}">
   <td class="c-check"><input type="checkbox" data-sel="${esc(p.id)}" ${prodSel.has(p.id)?'checked':''}></td>
-  <td><img class="thumb" src="${esc(p.image)}" alt="" loading="lazy"></td>
-  <td><strong>${esc(p.name||'新商品')}</strong>${p.badge?`<br><small class="muted">${esc(p.badge)}</small>`:''}</td>
+  <td><a href="/?product=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" title="在新标签打开商品页"><img class="thumb" src="${esc(p.image)}" alt="" loading="lazy"></a></td>
+  <td><a class="prod-name-link" href="/?product=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" title="在新标签打开商品页"><strong>${esc(p.name||'新商品')}</strong></a>${p.badge?`<br><small class="muted">${esc(p.badge)}</small>`:''}</td>
   <td>${priceCell(p)}</td>
   <td>${Number(p.stock||0)}</td>
   <td>${esc(catName(p.category))}</td>
   <td><select class="mini" data-access="${esc(p.id)}"><option value="all" ${(p.access||'all')==='all'?'selected':''}>公开</option><option value="normal" ${p.access==='normal'?'selected':''}>会员</option><option value="vip" ${p.access==='vip'?'selected':''}>VIP</option></select></td>
   <td><button class="pill ${p.active?'on':''}" data-active="${esc(p.id)}">${p.active?'显示中':'已关闭'}</button></td>
-  <td class="c-ops"><button class="button outline mini" data-edit="${esc(p.id)}">${prodOpen.has(p.id)?'收起':'编辑'}</button><button class="del" data-del="${esc(p.id)}">删除</button></td>
+  <td class="c-ops"><button class="button outline mini" data-edit="${esc(p.id)}">${prodOpen.has(p.id)?'收起':'编辑'}</button><a class="mini-link" href="/?product=${encodeURIComponent(p.id)}" target="_blank" rel="noopener">预览 ↗</a><button class="del" data-del="${esc(p.id)}">删除</button></td>
  </tr>${prodOpen.has(p.id)?editorRow(p):''}`).join('')}
  </tbody></table>${pageItems.length?'':`<p class="muted" style="padding:24px">${q||prodCat!=='all'?'没有符合条件的商品，试试换个关键词或分类。':'还没有商品，点右上角「添加商品」。'}</p>`}</div>`;
 
