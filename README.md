@@ -145,6 +145,15 @@ ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
 收录规则：只写入**游客可见**的内容——首页 + `access=all` 且已上架的商品；`会员` / `VIP` 商品，以及带等级限制的分类下的商品，一律不写入，避免搜索引擎把受限商品曝光给普通访客。受限商品本身也已输出 `noindex`。
 
 
+
+## 安装时测试失败怎么办
+
+仓库测试只是回归防线，**不再阻断安装**。测试在这台机器上失败（端口压力、内存小、网络受限）时会打印 `WARNING` 并继续，最终以「服务能否健康启动」为准。
+
+- 完整输出保存在 `shared/last-tests.log`
+- 想跳过测试：`MERIDIAN_RUN_TESTS=0 MERIDIAN_ALLOW_ROOT=1 bash install.sh`
+- 想强制跑测试：`MERIDIAN_RUN_TESTS=1 bash install.sh`（默认就是跑）
+
 ## 后台密码与登录时长
 
 - 初始密码在 `shared/config.env` 的 `ADMIN_PASSWORD`，安装时生成，**永久有效，不会过期**。

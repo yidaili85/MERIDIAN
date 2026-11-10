@@ -41,10 +41,17 @@ const smtp=net.createServer((sock)=>{
 await new Promise(r=>smtp.listen(0,'127.0.0.1',r));
 const smtpPort=smtp.address().port;
 
-function startServer(env){
+function freePort(){
  return new Promise((resolve,reject)=>{
+  const probe=net.createServer();
+  probe.once('error',reject);
+  probe.listen(0,'127.0.0.1',()=>{const p=probe.address().port;probe.close(()=>resolve(p));});
+ });
+}
+function startServer(env){
+ return new Promise(async(resolve,reject)=>{
   const dir=mkdtempSync(join(tmpdir(),'meridian-smtp-'));
-  const port=39900+Math.floor(Math.random()*90);
+  const port=await freePort();
   const child=spawn(process.execPath,['server.js'],{env:{...process.env,DATA_DIR:dir,PORT:String(port),ADMIN_PASSWORD:'test-password',...env},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',x=>{if(x.toString().includes(String(port)))resolve({child,dir,base:`http://127.0.0.1:${port}`});});
   child.stderr.on('data',x=>{if(!/ExperimentalWarning|trace-warnings/.test(x.toString()))reject(Error(x));});
