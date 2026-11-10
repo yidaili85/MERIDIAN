@@ -118,3 +118,44 @@ test('unpaid orders expire and release stock, but submitted payments are kept',a
  const rows2=await (await fetch(B.base+'/api/admin/orders',{headers:{Cookie:cookie}})).json();
  assert.match(rows2.find(x=>x.id===keep.id).details.status,/Awaiting/);
 });
+
+test('multi-image gallery: batch upload, validation, store output and JSON-LD',async()=>{
+ const cookie=await login(A.base);
+ const jpeg=Buffer.from([0xff,0xd8,0xff,0xe0,0x00,0x10,0x4a,0x46,0x49,0x46]);
+ const up=await fetch(A.base+'/api/admin/uploads',{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify({files:[PNG.toString('base64'),jpeg.toString('base64')]})});
+ assert.equal(up.status,201);
+ const {url,urls}=await up.json();
+ assert.equal(urls.length,2);
+ assert.equal(url,urls[0]);
+ assert.notEqual(urls[0],urls[1]);
+ const types=[];
+ for(const u of urls){const r=await fetch(A.base+u);assert.equal(r.status,200);types.push(r.headers.get('content-type'));}
+ assert.deepEqual(types,['image/png','image/jpeg']);
+
+ // 单次超过 8 张拒绝
+ const tooMany=await fetch(A.base+'/api/admin/uploads',{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify({files:Array(9).fill(PNG.toString('base64'))})});
+ assert.equal(tooMany.status,400);
+
+ const draft=await (await fetch(A.base+'/api/admin/content',{headers:{Cookie:cookie}})).json();
+ const put=async(payload)=>fetch(A.base+'/api/admin/content',{method:'PUT',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(payload)});
+ const withImages=structuredClone(draft);withImages.products[0].images=[urls[0],urls[1]];
+ assert.equal((await put(withImages)).status,200);
+
+ // 非法图集：外部协议、超过 8 张、非数组
+ const bad=structuredClone(draft);bad.products[0].images=['javascript:alert(1)'];
+ assert.equal((await put(bad)).status,400);
+ const many=structuredClone(draft);many.products[0].images=Array(9).fill(urls[0]);
+ assert.equal((await put(many)).status,400);
+ const notArray=structuredClone(draft);notArray.products[0].images='not-an-array';
+ assert.equal((await put(notArray)).status,400);
+
+ assert.equal((await fetch(A.base+'/api/admin/publish',{method:'POST',headers:{Cookie:cookie}})).status,200);
+ const store=await (await fetch(A.base+'/api/store')).json();
+ assert.deepEqual(store.products.find(p=>p.id===draft.products[0].id).images,[urls[0],urls[1]]);
+
+ const page=await call(A.base,'/?product='+draft.products[0].id);
+ assert.match(page.text,/"@type":"Product"/);
+ const ld=JSON.parse(page.text.match(/<script type="application\/ld\+json">(.+?)<\/script>/)[1]);
+ assert.equal(ld.image.length,3); // 主图 + 两张图集
+ assert.ok(ld.image.every(u=>u.startsWith('https://shop.example.com/')));
+});

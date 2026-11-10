@@ -70,7 +70,7 @@ npm start
 
 前台 `/`，后台 `/admin`，默认端口 3000。未设置 `ADMIN_PASSWORD` 时，每次启动会生成临时管理员密码并仅输出在服务终端；固定密码请通过环境变量注入，不要提交密码。会话八小时过期，重启需重新登录。
 
-可用环境变量：`PORT`、`HOST`、`DATA_DIR`（默认 `./data`）、`ADMIN_PASSWORD`、`COOKIE_SECURE=true`（HTTPS 部署时启用）、`PUBLIC_BASE_URL`（设置后启用 canonical、Open Graph、`sitemap.xml` 与 robots 中的 Sitemap 行）、`ORDER_TTL_MINUTES`（未支付订单自动过期并返库的分钟数，默认 30，设为 0 关闭）、`SWEEP_INTERVAL_MS`（过期扫描间隔，默认 300000）。数据库为 SQLite，自动初始化，重启保留数据；备份整个 data 目录前应停止服务或使用 SQLite 备份机制。上传的商品图片保存在 `DATA_DIR/uploads`，需随数据库一起备份。
+可用环境变量：`PORT`、`HOST`、`DATA_DIR`（默认 `./data`）、`ADMIN_PASSWORD`、`COOKIE_SECURE=true`（HTTPS 部署时启用）、`PUBLIC_BASE_URL`（设置后启用 canonical、Open Graph、`sitemap.xml` 与 robots 中的 Sitemap 行）、`ORDER_TTL_MINUTES`（未支付订单自动过期并返库的分钟数，默认 30，设为 0 关闭）、`SWEEP_INTERVAL_MS`（过期扫描间隔，默认 300000）。邮件通知（可选）：`MAIL_PROVIDER`（resend/postmark/sendgrid/generic，默认 resend）、`MAIL_API_KEY`、`MAIL_FROM`、`MAIL_FROM_NAME`、`MAIL_API_URL`（generic 必填）、`ORDER_NOTIFY_EMAIL`（店主副本，逗号分隔）、`WHATSAPP_NUMBER`（邮件里显示的客服号）。数据库为 SQLite，自动初始化，重启保留数据；备份整个 data 目录前应停止服务或使用 SQLite 备份机制。上传的商品图片保存在 `DATA_DIR/uploads`，需随数据库一起备份。
 
 ## 功能
 
@@ -85,6 +85,9 @@ npm start
 - SEO：服务端注入 description/Open Graph/Twitter Card/canonical/JSON-LD（首页 Store、商品 Product），提供 `robots.txt` 与 `sitemap.xml`，`?product=<id>` 可直接打开商品详情。
 - 后台支持上传商品图片（PNG/JPEG/WebP，≤5MB，按内容哈希命名，长缓存）。
 - 安全响应头：CSP、HSTS（HTTPS 时）、X-Frame-Options、Permissions-Policy；CSRF 同源校验兼容反向代理（`X-Forwarded-Host`/`PUBLIC_BASE_URL`）。
+- 商品支持主图 + 图集（最多 8 张），后台上传/设为主图/移除，前台缩略图切换，点击主图全屏放大（滚轮缩放、左右切换、ESC 关闭）。
+- 客户下单后立即发送订单确认邮件（HTML + 纯文本，含明细、合计、收货信息与付款入口）；邮件失败不影响下单，状态记录在订单 `details.mail`，后台「通知邮件」可发测试信。
+- 页脚展示 WhatsApp 实时沟通入口与支付方式图标（仅显示已启用的 PayPal / 卡组织 / USDT）。
 
 ## 验证
 

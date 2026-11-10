@@ -210,6 +210,54 @@ form label input,form label textarea{display:block;width:100%;margin-top:6px;tex
 .stepper button{border:1px solid var(--line);border-radius:999px;width:26px;height:26px}
 .payment-instructions{background:var(--soft);border:1px solid var(--line)}
 
+/* ---------- 商品图集与放大查看 ---------- */
+.detail-media{display:flex;flex-direction:column;gap:12px;min-width:0}
+.detail-main{position:relative;display:block;padding:0;background:var(--soft);border-radius:2px;overflow:hidden;cursor:zoom-in;width:100%}
+.detail-main img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.zoom-hint{
+  position:absolute;right:10px;bottom:10px;background:#111111cc;color:#fff;border-radius:2px;
+  font-family:var(--sans);font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:6px 9px;
+  opacity:0;transition:opacity .2s;
+}
+.detail-main:hover .zoom-hint,.detail-main:focus-visible .zoom-hint{opacity:1}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}
+.thumbs button{width:62px;height:62px;padding:0;border:1px solid var(--line);background:var(--soft);border-radius:2px;overflow:hidden}
+.thumbs button.active{border-color:var(--ink)}
+.thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+
+dialog.lightbox{
+  position:fixed;inset:0;width:100%;height:100%;max-width:100%;max-height:100%;margin:0;padding:0;
+  border:0;border-radius:0;background:#0b0b0bf2;color:#fff;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;
+}
+dialog.lightbox::backdrop{background:#000000}
+.lb-stage{margin:0;max-width:min(92vw,1100px);max-height:80vh;overflow:hidden;display:grid;place-items:center;cursor:zoom-in}
+.lb-stage img{max-width:100%;max-height:80vh;object-fit:contain;transition:transform .18s ease;transform-origin:center center}
+.lb-close{position:absolute;top:16px;right:20px;color:#fff;font-size:32px;line-height:1;background:none;border:0;padding:6px}
+.lb-prev,.lb-next{
+  position:absolute;top:50%;transform:translateY(-50%);color:#fff;font-size:46px;line-height:1;
+  background:none;border:0;padding:0 16px;
+}
+.lb-prev{left:10px}.lb-next{right:10px}
+.lb-count{color:#ffffffb3;font-family:var(--sans);font-size:11px;letter-spacing:.2em;margin:0}
+
+/* ---------- 页脚：WhatsApp + 支付方式 ---------- */
+footer{display:block;padding:0;background:var(--soft);border-top:1px solid var(--line);font-size:11px;letter-spacing:.1em;color:var(--muted)}
+.footer-top{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap;padding:40px 5% 26px}
+.footer-top .logo{font-size:18px;letter-spacing:.3em;color:var(--ink);font-family:var(--sans);font-weight:600}
+.footer-top p{margin:10px 0 0;line-height:1.7;max-width:380px}
+.footer-contact{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.wa-link{display:inline-flex;align-items:center;gap:8px;color:#1f9d55;font-family:var(--sans);font-size:12px;letter-spacing:.06em;text-transform:none}
+.wa-link:hover{color:#177f45}
+.footer-langs{margin:0;color:#9b9b9b}
+.footer-pay{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;border-top:1px solid var(--line);padding:16px 5%}
+.pay-label{font-family:var(--sans);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#6b6b6b}
+.pay-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pay-badge{display:inline-flex;line-height:0}
+.pay-badge svg{width:46px;height:29px;display:block}
+.pay-empty{font-size:11px;color:#9b9b9b;letter-spacing:.04em}
+.footer-bottom{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 5% 22px;color:#9b9b9b;font-size:10px}
+
 /* ---------- 响应式 ---------- */
 @media(max-width:1100px){
   .header-main{grid-template-columns:auto 1fr auto;gap:16px}

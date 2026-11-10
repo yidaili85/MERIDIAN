@@ -2,6 +2,7 @@ import {defaults, digest, readiness, methods, validateConfig, createCheckout, ca
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, timingSafeEqual, scryptSync, createHash } from 'node:crypto';
+import { createMailer, orderEmail } from './mailer.js';
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
@@ -9,7 +10,8 @@ const uploadDir = resolve(dir,'uploads'); mkdirSync(uploadDir,{recursive:true});
 // 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
 const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new URL(process.env.PUBLIC_BASE_URL);return u.protocol==='https:'&&u.pathname==='/'?u.origin:''}catch{return ''}})();
 // 未支付订单保留时长（分钟），0 表示关闭自动释放库存
-const orderTTL=Math.max(0,Number(process.env.ORDER_TTL_MINUTES ?? 30))*60000;
+const orderTTL=Math.max(0,Number(process.env.ORDER_TTL_MINUTES??30))*60000;
+const mail=createMailer(process.env);
 const db = new DatabaseSync(resolve(dir,'store.sqlite'));
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
@@ -65,6 +67,22 @@ function sweepExpiredOrders(){
 const sweepInterval=Math.max(200,Number(process.env.SWEEP_INTERVAL_MS||300000));
 setInterval(()=>{try{sweepExpiredOrders()}catch{}} ,sweepInterval).unref();
 try{sweepExpiredOrders()}catch{}
+// —— 订单确认邮件 ——
+function markOrderMail(id,status,error){
+ try{const o=getOrder(id);o.details.mail={status,at:new Date().toISOString(),...(error?{error:String(error).slice(0,200)}:{})};db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);}catch{}
+}
+function queueOrderMail(order,accessToken){
+ if(!mail.enabled)return markOrderMail(order.id,'disabled');
+ try{
+  const brand=content('published').brand||'MERIDIAN';
+  const msg=orderEmail({order,accessToken,brand,siteUrl:publicBase,whatsapp:process.env.WHATSAPP_NUMBER||''});
+  const recipients=[order.email,...String(process.env.ORDER_NOTIFY_EMAIL||'').split(',').map(s=>s.trim()).filter(Boolean)];
+  markOrderMail(order.id,'queued');
+  Promise.allSettled(recipients.map(to=>mail.send({to,subject:msg.subject,html:msg.html,text:msg.text})))
+   .then(rs=>{const bad=rs.filter(r=>r.status==='rejected');markOrderMail(order.id,bad.length?'failed':'sent',bad.length?bad[0].reason?.message:'');})
+   .catch(e=>markOrderMail(order.id,'failed',e.message));
+ }catch(e){markOrderMail(order.id,'failed',e.message);}
+}
 function validate(c){
  if(!c||typeof c!=='object'||!Array.isArray(c.products)||!Array.isArray(c.categories)||!Array.isArray(c.sections)) throw Error('内容格式错误');
  for(const key of ['brand','announcement','title','subtitle','eyebrow','heroImage','accent']) if(typeof c[key]!=='string') throw Error('页面字段不完整');
@@ -85,7 +103,10 @@ function validate(c){
  if(c.sections.some(x=>!['text','products'].includes(x.type)||typeof x.title!=='string'||typeof x.text!=='string'||typeof x.visible!=='boolean')) throw Error('区块格式错误');
  const image=(s)=>typeof s==='string'&&(s===''||/^https:\/\//i.test(s)||/^\/[^/]/.test(s));
  if(!image(c.heroImage)) throw Error('图片地址须使用 HTTPS 或站内路径');
- for(const p of c.products) if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
+ for(const p of c.products){
+  if(typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(p.price)||p.price<0||p.price>1000000||!Number.isInteger(p.stock)||p.stock<0||!c.categories.some(x=>x.id===p.category)||!image(p.image)||typeof p.description!=='string'||typeof p.active!=='boolean'||typeof p.badge!=='string') throw Error('请检查商品名称、分类、价格、库存和图片');
+  if(p.images!==undefined&&(!Array.isArray(p.images)||p.images.length>8||p.images.some(u=>!image(u)||u==='')))throw Error('图集最多 8 张，且每张须为 HTTPS 或站内路径');
+ }
  return c;
 }
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
@@ -121,8 +142,9 @@ function seoHead(url){
  const desc=String(product?product.description:(c.subtitle||c.announcement||'')).replace(/\s+/g,' ').trim().slice(0,160);
  const canonical=publicBase?publicBase+(product?`/?product=${encodeURIComponent(product.id)}`:'/'):'';
  const image=absURL(product?product.image:c.heroImage);
+ const gallery=product?[product.image,...(Array.isArray(product.images)?product.images:[])].map(absURL).filter(Boolean):[];
  const ld=product
-  ?{'@context':'https://schema.org','@type':'Product',name:product.name,description:product.description,sku:product.id,brand:{'@type':'Brand',name:c.brand},...(image?{image:[image]}:{}),offers:{'@type':'Offer',price:String(product.price),priceCurrency:'USD',availability:product.stock>0?'https://schema.org/InStock':'https://schema.org/OutOfStock',...(canonical?{url:canonical}:{})}}
+  ?{'@context':'https://schema.org','@type':'Product',name:product.name,description:product.description,sku:product.id,brand:{'@type':'Brand',name:c.brand},...(gallery.length?{image:gallery}:{}),offers:{'@type':'Offer',price:String(product.price),priceCurrency:'USD',availability:product.stock>0?'https://schema.org/InStock':'https://schema.org/OutOfStock',...(canonical?{url:canonical}:{})}}
   :{'@context':'https://schema.org','@type':'Store',name:c.brand,description:desc,...(canonical?{url:canonical}:{}),...(image?{image:image}:{}),hasOfferCatalog:{'@type':'OfferCatalog',name:'Collection',itemListElement:c.products.filter(p=>p.active).map(p=>({'@type':'Offer',price:String(p.price),priceCurrency:'USD',itemOffered:{'@type':'Product',name:p.name}}))}};
  return [
   `<meta name="description" content="${esc(desc)}">`,
@@ -167,17 +189,33 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/admin/content'&&req.method==='PUT'){save('draft',validate(await body(req)));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/publish'&&req.method==='POST'){save('published',validate(content('draft')));return json(res,200,{ok:true});}
    if(url.pathname==='/api/admin/orders'&&req.method==='GET')return json(res,200,db.prepare('SELECT * FROM orders ORDER BY created DESC').all().map(x=>({...x,details:JSON.parse(x.details),payment:paymentView(getPayment(x.id))})));
+   if(url.pathname==='/api/admin/mail'&&req.method==='GET')return json(res,200,{enabled:mail.enabled,provider:mail.provider,from:mail.from,notify:String(process.env.ORDER_NOTIFY_EMAIL||'').split(',').map(s=>s.trim()).filter(Boolean)});
+   if(url.pathname==='/api/admin/mail/test'&&req.method==='POST'){
+    const b=await body(req);
+    if(!mail.enabled)throw Error('邮件未配置：请设置 MAIL_PROVIDER / MAIL_API_KEY / MAIL_FROM');
+    if(typeof b.to!=='string'||!/^\S+@\S+\.\S+$/.test(b.to))throw Error('收件地址无效');
+    const msg=orderEmail({order:{id:'TEST-'+Date.now(),details:{items:[{name:'测试商品',price:1,quantity:1}],total:1,shipping:0,name:'Test Customer',address:'Test street 1',postalCode:'00000',country:'US',phone:'+1 000 000 0000'}},accessToken:'',brand:content('draft').brand||'MERIDIAN',siteUrl:publicBase});
+    await mail.send({to:b.to,subject:'[测试] '+msg.subject,html:msg.html,text:msg.text});
+    return json(res,200,{ok:true});
+   }
    if(url.pathname==='/api/admin/uploads'&&req.method==='POST'){
-    const b=await body(req,8e6);
-    if(typeof b.data!=='string'||!b.data)throw Error('缺少图片数据');
-    const buf=Buffer.from(b.data.replace(/^data:[^,]*,/,''),'base64');
-    if(!buf.length)throw Error('图片数据无效');
-    if(buf.length>5*1024*1024)throw Error('图片不能超过 5MB');
-    const kind=buf[0]===0x89&&buf.toString('ascii',1,4)==='PNG'?'png':buf[0]===0xff&&buf[1]===0xd8?'jpg':buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP'?'webp':'';
-    if(!kind)throw Error('只支持 PNG / JPEG / WebP 图片');
-    const name=createHash('sha256').update(buf).digest('hex').slice(0,32)+'.'+kind;
-    writeFileSync(join(uploadDir,name),buf);
-    return json(res,201,{url:'/uploads/'+name});
+    const b=await body(req,24e6);
+    const list=Array.isArray(b.files)?b.files:(typeof b.data==='string'?[b.data]:[]);
+    if(!list.length)throw Error('缺少图片数据');
+    if(list.length>8)throw Error('一次最多上传 8 张图片');
+    const save=(data)=>{
+     if(typeof data!=='string'||!data)throw Error('图片数据无效');
+     const buf=Buffer.from(data.replace(/^data:[^,]*,/,''),'base64');
+     if(!buf.length)throw Error('图片数据无效');
+     if(buf.length>5*1024*1024)throw Error('单张图片不能超过 5MB');
+     const kind=buf[0]===0x89&&buf.toString('ascii',1,4)==='PNG'?'png':buf[0]===0xff&&buf[1]===0xd8?'jpg':buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP'?'webp':'';
+     if(!kind)throw Error('只支持 PNG / JPEG / WebP 图片');
+     const name=createHash('sha256').update(buf).digest('hex').slice(0,32)+'.'+kind;
+     writeFileSync(join(uploadDir,name),buf);
+     return '/uploads/'+name;
+    };
+    const urls=list.map(save);
+    return json(res,201,{url:urls[0],urls});
    }
   }
   if(url.pathname==='/api/payments/methods'&&req.method==='GET')return json(res,200,methods(paymentConfig(),process.env));
@@ -211,7 +249,7 @@ const server=http.createServer(async(req,res)=>{
    const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
    const shipping=total>=15000?0:1200;const details={country:String(b.country||'').slice(0,100),postalCode:String(b.postalCode||'').slice(0,40),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
-   db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return json(res,201,{id,...details,accessToken});
+   db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
   }
   if(url.pathname.startsWith('/api/'))return json(res,404,{error:'接口不存在'});
   if(!['GET','HEAD'].includes(req.method))return json(res,405,{error:'不支持此方法'});
