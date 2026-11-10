@@ -320,3 +320,7 @@ body.has-cookie{padding-bottom:92px}
 .pay-error{max-width:520px;margin:0 auto;text-align:center;padding:60px 20px}
 .pay-error h1{font-size:20px;font-weight:500;margin:10px 0}
 @media(max-width:820px){.pay-wrap{grid-template-columns:1fr;gap:26px}.pay-summary{position:static}}
+
+.copy-mini{font:inherit;font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:none;border:1px solid var(--line,#d8d2c6);color:inherit;border-radius:3px;padding:2px 7px;margin-left:8px;cursor:pointer;vertical-align:middle}
+.copy-mini:hover{background:var(--ink,#111);color:#fff;border-color:var(--ink,#111)}
+.pay-main{padding-bottom:110px}

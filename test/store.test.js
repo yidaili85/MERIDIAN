@@ -43,7 +43,14 @@ test('manual USDT: configuration, owner access, quote snapshots, admin-only conf
  assert.equal((await req('/api/admin/payments','PUT',{...config,usdtAddress:'wrong'},true)).status,400);
  assert.equal((await req('/api/admin/payments','PUT',config,true)).status,200);assert.equal((await req('/api/payments/methods')).data.usdt,true);
  const customer={name:'Alex',email:'alex@example.com',phone:'+1 202 555 0123',address:'Boston MA',country:'US',state:'MA',postalCode:'02108',items:[{id:'p3',quantity:1}]};
- const order=(await req('/api/orders','POST',customer)).data;
+ // USDT 只对 VIP 会员开放，所以用 VIP 账号下单
+ await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'usdt@example.com',name:'U',password:'usdtpass123'})});
+ const users=await (await fetch(base+'/api/admin/customers',{headers:{Cookie:cookie}})).json();
+ const uid=(Array.isArray(users)?users:users.customers).find(u=>u.email==='usdt@example.com').id;
+ await fetch(base+'/api/admin/customers/'+uid,{method:'PUT',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify({level:'vip'})});
+ const cl=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'usdt@example.com',password:'usdtpass123'})});
+ const vipCookie=cl.headers.get('set-cookie').split(';')[0];
+ const order=(await (await fetch(base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json',Cookie:vipCookie},body:JSON.stringify(customer)})).json());
  async function owned(o,action,method='GET',data){const r=await fetch(base+'/api/orders/'+o.id+'/'+action,{method,headers:{Authorization:'Bearer '+o.accessToken,'Content-Type':'application/json'},...(data?{body:JSON.stringify(data)}:{})});return{status:r.status,data:await r.json()};}
  assert.equal((await req('/api/orders/'+order.id+'/payment')).status,403);
  assert.equal((await owned(order,'payment','POST',{provider:'paypal'})).status,400);
@@ -59,7 +66,7 @@ test('manual USDT: configuration, owner access, quote snapshots, admin-only conf
  assert.equal((await req('/api/admin/orders/'+order.id+'/confirm-usdt','POST',{transactionId:'b'.repeat(64),verified:true},true)).status,400);
  const paid=await req('/api/admin/orders/'+order.id+'/confirm-usdt','POST',{transactionId:hash,verified:true},true);assert.equal(paid.status,200);assert.equal(paid.data.payment.status,'paid');
  assert.equal((await req('/api/admin/orders/'+order.id+'/confirm-usdt','POST',{transactionId:hash,verified:true},true)).status,200);
- const other=(await req('/api/orders','POST',customer)).data;await owned(other,'payment','POST',{provider:'usdt'});await owned(other,'transaction','POST',{transactionId:'0x'+hash.toUpperCase()});
+ const other=(await (await fetch(base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json',Cookie:vipCookie},body:JSON.stringify(customer)})).json());await owned(other,'payment','POST',{provider:'usdt'});await owned(other,'transaction','POST',{transactionId:'0x'+hash.toUpperCase()});
  assert.equal((await req('/api/admin/orders/'+other.id+'/confirm-usdt','POST',{transactionId:hash,verified:true},true)).status,400);
  assert.equal((await owned(other,'payment')).data.payment.status,'awaiting_review');
  const rows=(await req('/api/admin/orders','GET',null,true)).data;assert.equal(rows.find(x=>x.id===order.id).details.status,'Paid');

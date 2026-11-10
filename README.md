@@ -127,7 +127,7 @@ ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
 
 **会员与可见性**：商品和分类都带观看等级（公开 / 登录会员 / VIP），未获授权的商品**不进列表、不进 sitemap**，只能通过后台复制的 `/?product=<id>` 或 `/?category=<id>` 直达；直链按等级放行，未授权返回 403 且不泄露名称 / 图片 / 价格、页面 noindex。加购与下单服务端二次校验。
 
-**支付**：PayPal 官方收银台 + USDT 直收人工核账。默认规则：普通订单只能 PayPal，含 VIP 商品的订单只能 USDT（`PAYMENT_RULES=off` 关闭）。
+**支付**：PayPal 官方收银台 + USDT 直收人工核账。规则按买家会员等级：**普通会员与游客只能 PayPal，VIP 会员的订单只能 USDT**；订单里含 VIP 专属商品时整单强制 USDT。规则在下单时快照进订单，改等级不影响历史订单（`PAYMENT_RULES=off` 关闭）。所需方式未配置时页面明确提示「暂不可支付」，不会擅自换成另一种方式。
 
 **统计**：后台自建数据看板，PV/UV、加购、订单、来源、单品浏览量，不接第三方统计。
 
@@ -193,7 +193,7 @@ ssh -L 3000:127.0.0.1:3000 root@你的服务器IP
 | `DATA_DIR` | `./data` | SQLite 与上传图片；容器内 `/data` |
 | `COOKIE_SECURE` | `false` | HTTPS 部署置 `true` |
 | `PUBLIC_BASE_URL` | 空 | 正式 HTTPS 根域名；启用 canonical / sitemap / 支付回跳 |
-| `PAYMENT_RULES` | `on` | `off` 关闭「VIP=USDT、其他=PayPal」规则 |
+| `PAYMENT_RULES` | `on` | `off` 关闭「VIP 会员=USDT、其他=PayPal」规则 |
 | `ORDER_TTL_MINUTES` | `30` | 未支付订单过期返库分钟数，`0` 关闭 |
 | `SWEEP_INTERVAL_MS` | `300000` | 过期扫描间隔 |
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_WEBHOOK_ID` | 空 | 三项齐全才启用 PayPal |

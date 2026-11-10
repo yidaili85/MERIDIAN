@@ -121,7 +121,15 @@ test('unpaid orders expire and release stock, but submitted payments are kept',a
  assert.match(rows.find(x=>x.id===order.id).details.status,/Expired/);
 
  // USDT 已提交哈希的订单不自动释放
- const keep=await (await fetch(B.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...customer,items:[{id:'p2',quantity:1}]})})).json();
+ // USDT 只对 VIP 开放：先把买家升级成 VIP，再用其会话下单
+ const adminCk=await login(B.base);
+ await fetch(B.base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'keep@example.com',name:'K',password:'keeppass123'})});
+ const us=await (await fetch(B.base+'/api/admin/customers',{headers:{Cookie:adminCk}})).json();
+ const uid=(Array.isArray(us)?us:us.customers).find(u=>u.email==='keep@example.com').id;
+ await fetch(B.base+'/api/admin/customers/'+uid,{method:'PUT',headers:{'Content-Type':'application/json',Cookie:adminCk},body:JSON.stringify({level:'vip'})});
+ const kl=await fetch(B.base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'keep@example.com',password:'keeppass123'})});
+ const keepCookie=kl.headers.get('set-cookie').split(';')[0];
+ const keep=await (await fetch(B.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json',Cookie:keepCookie},body:JSON.stringify({...customer,email:'keep@example.com',items:[{id:'p2',quantity:1}]})})).json();
  await fetch(B.base+'/api/admin/payments',{method:'PUT',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify({paypalEnabled:false,paypalMode:'sandbox',usdtEnabled:true,usdtNetwork:'erc20',usdtAddress:'0x'+'1'.repeat(40),usdtRate:1})});
  await fetch(B.base+'/api/orders/'+keep.id+'/payment',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+keep.accessToken},body:JSON.stringify({provider:'usdt'})});
  await fetch(B.base+'/api/orders/'+keep.id+'/transaction',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+keep.accessToken},body:JSON.stringify({transactionId:'c'.repeat(64)})});

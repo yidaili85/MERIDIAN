@@ -79,3 +79,22 @@ test('PAYMENT_RULES=off restores both providers',async()=>{
  const state=await (await fetch(O.base+'/api/orders/'+order.id+'/payment',{headers:auth(order)})).json();
  assert.deepEqual(state.allowed.sort(),['paypal','usdt']);
 });
+
+test('a VIP member pays in USDT even for a standard item',async()=>{
+ const login=await post(S.base,'/api/auth/login',{email:'vip@example.com',password:'password123'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const order=await (await post(S.base,'/api/orders',{...customer,items:[{id:'p1',quantity:1}]},cookie)).json();
+ assert.equal(order.paymentPolicy,'usdt');
+ const state=await (await fetch(S.base+'/api/orders/'+order.id+'/payment',{headers:auth(order)})).json();
+ assert.deepEqual(state.allowed,['usdt']);
+});
+
+test('a standard member keeps PayPal even though VIP items exist in the catalogue',async()=>{
+ await post(S.base,'/api/auth/register',{email:'plain@example.com',password:'plainpass123',name:'Plain'});
+ const login=await post(S.base,'/api/auth/login',{email:'plain@example.com',password:'plainpass123'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const order=await (await post(S.base,'/api/orders',{...customer,email:'plain@example.com',items:[{id:'p1',quantity:1}]},cookie)).json();
+ assert.equal(order.paymentPolicy,'paypal');
+ const state=await (await fetch(S.base+'/api/orders/'+order.id+'/payment',{headers:auth(order)})).json();
+ assert.deepEqual(state.allowed,['paypal']);
+});
