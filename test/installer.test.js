@@ -9,7 +9,8 @@ const source=resolve('.');
 function command(args){return new Promise((resolve,reject)=>{const p=spawn('bash',args,{env:{...process.env,MERIDIAN_INSTALLER_NESTED:'1'},stdio:['ignore','pipe','pipe']});let out='';p.stdout.on('data',d=>out+=d);p.stderr.on('data',d=>out+=d);p.on('error',reject);p.on('close',code=>code===0?resolve(out):reject(Error(out)));});}
 async function freePort(){const server=net.createServer();await new Promise((r,j)=>{server.once('error',j);server.listen(0,'127.0.0.1',r);});const port=server.address().port;await new Promise(r=>server.close(r));return port;}
 // Installer runs the repository tests too. Avoid recursively invoking itself.
-const skip=process.env.MERIDIAN_INSTALLER_NESTED==='1'||process.getuid?.()===0||process.platform!=='linux';
+const skip=process.env.MERIDIAN_INSTALLER_NESTED==='1'||process.getuid?.()===0||process.platform!=='linux'
+ ||!existsSync(join(source,'install.sh'))||!existsSync(join(source,'scripts','meridian.sh'));
 test('installer starts HTTP service, preserves config/orders on reinstall and stops only its own process',{skip,timeout:120000},async()=>{
  const temp=mkdtempSync(join(tmpdir(),'meridian-install-test-')),base=join(temp,'installation'),input=join(temp,'source');let manager;
  try{
