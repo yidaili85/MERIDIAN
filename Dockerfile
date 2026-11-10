@@ -13,6 +13,7 @@ WORKDIR /app
 COPY package.json server.js payments.js mailer.js smtp.js countries.js ./
 COPY public ./public
 COPY test ./test
+COPY scripts ./scripts
 
 RUN addgroup -S app && adduser -S -G app app \
  && mkdir -p /data && chown -R app:app /data /app

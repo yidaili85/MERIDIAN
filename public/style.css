@@ -200,3 +200,9 @@ body.has-cookie{padding-bottom:92px}
  .products>*, .tabs button, .footer-nav a, .footer-nav button{margin:0 8px 8px 0}
  .nav-tools>*{margin-left:10px}
 }
+
+/* 后台登录：保持登录勾选 */
+.login .remember{display:flex;align-items:center;gap:8px;font-size:14px;color:#5b5b5b;margin:-4px 0 4px}
+.login .remember input{width:auto;margin:0}
+
+.form-grid .span-2{grid-column:1/-1}

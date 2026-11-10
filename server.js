@@ -94,6 +94,12 @@ function setCustomerCookie(res,id){
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS events (ts TEXT NOT NULL, day TEXT NOT NULL, hour INTEGER NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL DEFAULT '', vid TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS events_lookup ON events(day,kind);");
 db.exec('CREATE TABLE IF NOT EXISTS mail_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL);');
+db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+const getSetting=(k)=>{try{return db.prepare('SELECT value FROM settings WHERE key=?').get(k)?.value||'';}catch{return '';}};
+const setSetting=(k,v)=>{db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k,v);};
+const adminPassOk=(pw)=>typeof pw==='string'&&pw.length>0&&timingSafeEqual(scryptSync(pw,salt,64),hash);
+const verifyPass=(pw,stored)=>{if(typeof pw!=='string'||!stored)return false;const [sd,hx]=stored.split(':');if(!sd||!hx)return false;try{return timingSafeEqual(scryptSync(pw,Buffer.from(sd,'hex'),64),Buffer.from(hx,'hex'));}catch{return false;}};
+const adminPasswordOk=(pw)=>{const saved=getSetting('admin_password');return saved?verifyPass(pw,saved):adminPassOk(pw);};
 db.exec("CREATE TABLE IF NOT EXISTS payment_config (id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payments (order_id TEXT PRIMARY KEY, details TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payment_receipts (network TEXT NOT NULL, tx_hash TEXT NOT NULL, order_id TEXT NOT NULL, UNIQUE(network,tx_hash)); CREATE TABLE IF NOT EXISTS order_access (order_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL);");
 if(!db.prepare('SELECT id FROM payment_config WHERE id=1').get())db.prepare('INSERT INTO payment_config VALUES (1,?)').run(JSON.stringify(defaults));
 const paymentConfig=()=>({...defaults,...JSON.parse(db.prepare('SELECT value FROM payment_config WHERE id=1').get().value)});
@@ -121,6 +127,8 @@ if(!db.prepare('SELECT id FROM content WHERE id=1').get()) db.prepare('INSERT IN
 const password=process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
 if(!process.env.ADMIN_PASSWORD) console.log(`临时管理员密码（重启后变化）: ${password}`);
 const salt=randomBytes(16), hash=scryptSync(password,salt,64), sessions=new Map();
+const ADMIN_TTL=Number(process.env.ADMIN_SESSION_HOURS||8)*3600000;
+const ADMIN_REMEMBER=Number(process.env.ADMIN_REMEMBER_DAYS||30)*86400000;
 const whatsappDefaults={enabled:false,phone:'',messages:{en:'Hi! I would like to know more about your watches.',de:'Hallo! Ich möchte mehr über Ihre Uhren erfahren.',es:'¡Hola! Me gustaría saber más sobre sus relojes.'}};
 const content=(field)=>{const c=JSON.parse(db.prepare('SELECT draft,published FROM content WHERE id=1').get()[field]);return{...c,whatsapp:{...whatsappDefaults,...c.whatsapp,messages:{...whatsappDefaults.messages,...c.whatsapp?.messages}}};};
 const save=(field,value)=>db.prepare(`UPDATE content SET ${field}=? WHERE id=1`).run(JSON.stringify(value));
@@ -325,12 +333,27 @@ const server=http.createServer(async(req,res)=>{
   if(req.method!=='GET'&&req.method!=='HEAD'&&!originAllowed(req)) return json(res,403,{error:'不允许跨站请求'});
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const ip=req.socket.remoteAddress,now=Date.now(),a=attempts.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;} if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});
-   const b=await body(req);if(typeof b.password!=='string'||!timingSafeEqual(scryptSync(b.password,salt,64),hash)){a.n++;attempts.set(ip,a);return json(res,401,{error:'密码不正确'});}
-   attempts.delete(ip);for(const [k,v] of sessions)if(v<now)sessions.delete(k);const token=randomBytes(32).toString('hex');sessions.set(token,now+8*3600000);res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);return json(res,200,{ok:true});
+   const b=await body(req);if(!adminPasswordOk(b.password)){a.n++;attempts.set(ip,a);return json(res,401,{error:'密码不正确'});}
+   attempts.delete(ip);for(const [k,v] of sessions)if(v<now)sessions.delete(k);
+   const remember=b.remember===true,ttl=remember?ADMIN_REMEMBER:ADMIN_TTL;
+   const token=randomBytes(32).toString('hex');sessions.set(token,now+ttl);
+   res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(ttl/1000)}${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
+   return json(res,200,{ok:true,days:Math.round(ttl/86400000*10)/10});
   }
   if(url.pathname==='/api/logout'&&req.method==='POST'){const token=(req.headers.cookie||'').match(/(?:^|;\s*)session=([^;]+)/)?.[1];sessions.delete(token);res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
   if(url.pathname.startsWith('/api/admin')){
    if(!auth(req))return json(res,401,{error:'请先登录后台'});
+   if(url.pathname==='/api/admin/account'&&req.method==='GET')return json(res,200,{passwordSource:getSetting('admin_password')?'database':'env',sessionHours:ADMIN_TTL/3600000,rememberDays:ADMIN_REMEMBER/86400000});
+   if(url.pathname==='/api/admin/password'&&req.method==='POST'){
+    const b=await body(req);
+    if(!adminPasswordOk(b.current))return json(res,400,{error:'当前密码不正确'});
+    if(typeof b.next!=='string'||b.next.length<10)return json(res,400,{error:'新密码至少 10 位'});
+    if(b.next===b.current)return json(res,400,{error:'新密码不能与当前密码相同'});
+    setSetting('admin_password',hashPass(b.next));
+    sessions.clear();
+    res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+    return json(res,200,{ok:true,relogin:true});
+   }
    const confirmation=url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/confirm-usdt$/);
    if(confirmation&&req.method==='POST')return await locked(confirmation[1],async()=>{const id=confirmation[1],p=getPayment(id),b=await body(req);if(!p||p.provider!=='usdt')throw Error('No USDT payment found');if(p.status==='paid')return json(res,200,{payment:paymentView(p)});if(b.verified!==true||p.status!=='awaiting_review'||transactionHash(b.transactionId)!==p.submittedHash)throw Error('Verify the submitted transaction before confirming');const used=db.prepare('SELECT order_id FROM payment_receipts WHERE network=? AND tx_hash=?').get(p.network,p.submittedHash);if(used)throw Error('This transaction has already been used for another order');db.exec('BEGIN');try{db.prepare('INSERT INTO payment_receipts VALUES (?,?,?)').run(p.network,p.submittedHash,id);p.status='paid';p.transactionId=p.submittedHash;p.paidAt=new Date().toISOString();p.confirmedBy='admin';putPayment(id,p);const o=getOrder(id);o.details.status='Paid';db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return json(res,200,{payment:paymentView(p)});});
    if(url.pathname==='/api/admin/payments'&&req.method==='GET')return json(res,200,{config:paymentConfig(),readiness:readiness(paymentConfig(),process.env)});
