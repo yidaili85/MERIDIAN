@@ -39,14 +39,13 @@ before(async()=>{
 test('guests see locked entries without details, members unlock progressively',async()=>{
  const guest=await store();
  assert.equal(guest.viewer,null);
- const p2=guest.products.find(p=>p.id==='p2');
- assert.equal(p2.locked,true);
- assert.equal(p2.access,'vip');
- assert.equal(p2.description,'');
- assert.equal(p2.name,'The Chronograph — Noir'); // 名称/价格保留用于引导升级
- const p3=guest.products.find(p=>p.id==='p3');
- assert.equal(p3.locked,true);
- assert.equal(guest.products.find(p=>p.id==='p1').locked,false);
+ // VIP / 会员商品完全不出现在列表里
+ assert.equal(guest.products.some(p=>p.id==='p2'),false);
+ assert.equal(guest.products.some(p=>p.id==='p3'),false);
+ assert.ok(guest.products.some(p=>p.id==='p1'));
+ const direct=await fetch(S.base+'/api/products/p2');
+ assert.equal(direct.status,403);
+ assert.equal((await direct.json()).access,'vip');
 
  const reg=await post('/api/auth/register',{email:'alex@example.com',password:'secret123',name:'Alex'});
  assert.equal(reg.status,201);
@@ -56,9 +55,12 @@ test('guests see locked entries without details, members unlock progressively',a
 
  const normal=await store(cookie);
  assert.equal(normal.viewer.level,'normal');
- assert.equal(normal.products.find(p=>p.id==='p3').locked,false);
  assert.ok(normal.products.find(p=>p.id==='p3').description.length>0);
- assert.equal(normal.products.find(p=>p.id==='p2').locked,true);
+ assert.equal(normal.products.some(p=>p.id==='p2'),false);
+ const linkNormal=await fetch(S.base+'/api/products/p2',{headers:{Cookie:cookie}});
+ assert.equal(linkNormal.status,403);
+ const linkMember=await fetch(S.base+'/api/products/p3',{headers:{Cookie:cookie}});
+ assert.equal(linkMember.status,200);
 });
 
 test('checkout rejects restricted items until the level is granted',async()=>{
@@ -77,7 +79,10 @@ test('checkout rejects restricted items until the level is granted',async()=>{
 
  const vip=await store(cookie);
  assert.equal(vip.viewer.level,'vip');
- assert.equal(vip.products.find(p=>p.id==='p2').locked,false);
+ assert.ok(vip.products.find(p=>p.id==='p2'));
+ const linkVip=await fetch(S.base+'/api/products/p2',{headers:{Cookie:cookie}});
+ assert.equal(linkVip.status,200);
+ assert.equal((await linkVip.json()).id,'p2');
 
  const ok=await post('/api/orders',{...customer,items:[{id:'p2',quantity:1}]},cookie);
  assert.equal(ok.status,201);
@@ -93,6 +98,10 @@ test('product page meta is gated by level',async()=>{
  assert.doesNotMatch(guest,/"sku":"p2"/);
  assert.doesNotMatch(guest,/Chronograph/);
  assert.match(guest,/name="robots" content="noindex/);
+
+ const sitemap=await (await fetch(S.base+'/sitemap.xml')).text();
+ assert.doesNotMatch(sitemap,/product=p2/);
+ assert.match(sitemap,/product=p1/);
 
  const vip=await (await fetch(S.base+'/?product=p2',{headers:{Cookie:vipCookie}})).text();
  assert.match(vip,/"@type":"Product"/);

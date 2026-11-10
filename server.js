@@ -189,7 +189,7 @@ function sitemapXML(){
  if(!publicBase)return '';
  const c=content('published'),last=new Date().toISOString().slice(0,10);
  const urls=[`<url><loc>${publicBase}/</loc><lastmod>${last}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
-  ...c.products.filter(p=>p.active).map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
+  ...c.products.filter(p=>p.active&&(!p.access||p.access==='all')).map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`;
 }
 const server=http.createServer(async(req,res)=>{
@@ -314,14 +314,18 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/store'&&req.method==='GET'){
    const viewer=customerFromReq(req);
    const c=content(url.searchParams.has('preview')&&auth(req)?'draft':'published');
-   c.products=c.products.filter(p=>p.active).map(p=>{
-    const access=ACCESS_LEVELS.includes(p.access)?p.access:'all',locked=!canView(access,viewer);
-    const base={id:p.id,name:p.name,price:p.price,image:p.image,category:p.category,badge:p.badge||'',stock:p.stock,active:true,access,locked};
-    if(locked)return{...base,description:'',de:{name:p.de?.name||p.name},es:{name:p.es?.name||p.name}};
-    return{...p,access,locked:false};
-   });
+   c.products=c.products.filter(p=>p.active&&canView(p.access,viewer)).map(p=>({...p,access:ACCESS_LEVELS.includes(p.access)?p.access:'all',locked:false}));
    c.viewer=viewer?{email:viewer.email,level:viewer.level,name:viewer.name}:null;
    return json(res,200,c);
+  }
+  if(url.pathname.startsWith('/api/products/')&&req.method==='GET'){
+   const id=decodeURIComponent(url.pathname.slice('/api/products/'.length));
+   const viewer=customerFromReq(req);
+   const p=content('published').products.find(x=>x.id===id&&x.active);
+   if(!p)return json(res,404,{error:'商品不存在或已下架'});
+   const access=ACCESS_LEVELS.includes(p.access)?p.access:'all';
+   if(!canView(access,viewer))return json(res,403,{error:'此商品仅限 VIP 会员浏览',access,loggedIn:Boolean(viewer),level:viewer?.level||null});
+   return json(res,200,{...p,access,locked:false});
   }
   if(url.pathname==='/api/orders'&&req.method==='POST'){
    const b=await body(req);if(typeof b.email!=='string'||!/^\S+@\S+\.\S+$/.test(b.email)||typeof b.country!=='string'||!b.country.trim()||typeof b.postalCode!=='string'||!b.postalCode.trim())throw Error('Email, country and postal code are required');

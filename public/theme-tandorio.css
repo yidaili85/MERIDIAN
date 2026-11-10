@@ -276,12 +276,8 @@ footer{display:block;padding:0;background:var(--soft);border-top:1px solid var(-
 }
 .level-chip.vip{background:#111;border-color:#111;color:#f4c869}
 .product-image{aspect-ratio:1}
-.product-image.locked{background:#f2f1ef;display:grid;place-items:center;cursor:pointer}
 .product-image.locked::after{content:none}
-.img-blank{display:flex;flex-direction:column;align-items:center;gap:10px;color:#a8a6a2;font-family:var(--sans);font-size:10px;letter-spacing:.2em;text-transform:uppercase}
-.product:hover .img-blank{color:#8b8985}
-.lock-badge{background:#111!important;color:#f4c869!important;letter-spacing:.1em}
-.lock-screen{text-align:center;max-width:420px;margin:0 auto;padding:8px 0 4px}
+.product:hover .lock-screen{text-align:center;max-width:420px;margin:0 auto;padding:8px 0 4px}
 .lock-icon{margin-bottom:10px;line-height:0}
 .lock-note{opacity:.5;display:inline-grid;place-items:center;width:34px;height:34px;color:#111}
 .lock-screen .eyebrow{color:var(--muted);letter-spacing:.28em}
