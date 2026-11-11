@@ -63,7 +63,7 @@ export function createMailer(env = process.env, fetchImpl = fetch) {
 export function orderEmail({ order, accessToken, brand = 'MERIDIAN', siteUrl = '', whatsapp = '' }) {
   const details = order.details || order;
   const items = Array.isArray(details.items) ? details.items : [];
-  const rows = items.map((i) => `<tr><td style="padding:10px 0;border-bottom:1px solid #eee">${esc(i.name)}<br><span style="color:#868686;font-size:12px">× ${i.quantity} · ${money(i.price)} each</span>${i.artwork?`<br><span style="color:#868686;font-size:12px">Custom dial artwork: <a href="${esc(i.artwork.url)}">${esc(i.artwork.url)}</a></span>`:''}</td><td align="right" style="padding:10px 0;border-bottom:1px solid #eee">${money(i.price * i.quantity)}</td></tr>`).join('');
+  const rows = items.map((i) => `<tr><td style="padding:10px 0;border-bottom:1px solid #eee">${esc(i.name)}<br><span style="color:#868686;font-size:12px">× ${i.quantity} · ${money(i.price)} each</span>${i.artwork?`<br><span style="color:#868686;font-size:12px">Custom dial ${i.artwork.preview?'mock-up':'artwork'}: <a href="${esc(i.artwork.preview||i.artwork.url)}">${esc(i.artwork.preview||i.artwork.url)}</a></span>`:''}</td><td align="right" style="padding:10px 0;border-bottom:1px solid #eee">${money(i.price * i.quantity)}</td></tr>`).join('');
   const payUrl = siteUrl && accessToken ? `${siteUrl}/?order=${encodeURIComponent(order.id)}&token=${encodeURIComponent(accessToken)}` : '';
   const subject = `订单已收到 ${order.id} · ${brand}`;
   const html = `<!doctype html><html><body style="margin:0;background:#f6f5f3;font-family:Georgia,serif;color:#333">
@@ -87,7 +87,7 @@ export function orderEmail({ order, accessToken, brand = 'MERIDIAN', siteUrl = '
     `${brand} — 感谢您的订单`,
     `订单号: ${order.id}`,
     '',
-    ...items.map((i) => `${i.name} × ${i.quantity} — ${money(i.price * i.quantity)}${i.artwork ? ` · artwork ${i.artwork.url}` : ''}`),
+    ...items.map((i) => `${i.name} × ${i.quantity} — ${money(i.price * i.quantity)}${i.artwork ? ` · artwork ${i.artwork.preview||i.artwork.url}` : ''}`),
     `小计: ${money(details.total - (details.shipping || 0))}`,
     `运费: ${details.shipping ? money(details.shipping) : '免运费'}`,
     `合计: ${money(details.total)} USD`,

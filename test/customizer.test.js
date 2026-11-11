@@ -80,7 +80,7 @@ test('customizer: artwork upload + order carries placement', async t => {
   r = await post('/api/orders', {
     name: 'Custom Buyer', email: 'buyer@example.com', phone: '+1 617 555 0100',
     address: '1 Test Street', city: 'Boston', state: 'MA', postalCode: '02108', country: 'US',
-    items: [{ id: 'p1', quantity: 1, artwork: { url, x: 48, y: 52, size: 30 } }],
+    items: [{ id: 'p1', quantity: 1, artwork: { url, x: 48, y: 52, size: 30, preview: url } }],
   });
   assert.ok([200, 201].includes(r.status), 'order created: ' + r.status);
   const order = await r.json();
@@ -89,12 +89,13 @@ test('customizer: artwork upload + order carries placement', async t => {
   const detail = await (await fetch(`${base()}/api/orders/lookup?email=${encodeURIComponent('buyer@example.com')}&id=${encodeURIComponent(order.id)}`)).json();
   assert.equal(detail.items[0].artwork.url, url);
   assert.equal(detail.items[0].artwork.size, 30);
+  assert.equal(detail.items[0].artwork.preview, url);
 
   // 非本站图案路径一律丢弃
   r = await post('/api/orders', {
     name: 'Custom Buyer 2', email: 'buyer2@example.com', phone: '+1 617 555 0101',
     address: '2 Test Street', city: 'Boston', state: 'MA', postalCode: '02108', country: 'US',
-    items: [{ id: 'p1', quantity: 1, artwork: { url: 'https://evil.example.com/x.png', x: 1, y: 1, size: 20 } }],
+    items: [{ id: 'p1', quantity: 1, artwork: { url: 'https://evil.example.com/x.png', preview: 'https://evil.example.com/p.png', x: 1, y: 1, size: 20 } }],
   });
   assert.ok([200, 201].includes(r.status), 'order2 created: ' + r.status);
   const o2 = await r.json();
@@ -105,11 +106,12 @@ test('customizer: artwork upload + order carries placement', async t => {
   r = await post('/api/orders', {
     name: 'Custom Buyer 3', email: 'buyer3@example.com', phone: '+1 617 555 0102',
     address: '3 Test Street', city: 'Boston', state: 'MA', postalCode: '02108', country: 'US',
-    items: [{ id: 'p1', quantity: 1, artwork: { url, x: 999, y: -50, size: 1000 } }],
+    items: [{ id: 'p1', quantity: 1, artwork: { url, x: 999, y: -50, size: 1000, rot: 500 } }],
   });
   const o3 = await r.json();
   const d3 = await (await fetch(`${base()}/api/orders/lookup?email=${encodeURIComponent('buyer3@example.com')}&id=${encodeURIComponent(o3.id)}`)).json();
   assert.equal(d3.items[0].artwork.x, 100);
   assert.equal(d3.items[0].artwork.y, 0);
   assert.equal(d3.items[0].artwork.size, 120);
+  assert.equal(d3.items[0].artwork.rot, 45);
 });
