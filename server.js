@@ -5,6 +5,7 @@ import { randomBytes, timingSafeEqual, scryptSync, createHash } from 'node:crypt
 import { createMailer, orderEmail } from './mailer.js';
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
+import { brotliCompressSync, gzipSync, constants as zconstants } from 'node:zlib';
 import {COUNTRIES, byCode, postcodeValid, stateList} from './countries.js';
 import { fileURLToPath } from 'node:url';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
@@ -304,7 +305,22 @@ function validate(c){
  }
  return c;
 }
-const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
+const COMPRESSIBLE=/^(text\/|application\/(json|xml|javascript)|image\/svg)/i;
+const encodeBody=(req,res,body,type='')=>{
+ const buf=Buffer.isBuffer(body)?body:Buffer.from(String(body),'utf8');
+ res.setHeader('Vary','Accept-Encoding');
+ if(buf.length<1024||!COMPRESSIBLE.test(type))return buf;
+ const accept=String(req.headers['accept-encoding']||'');
+ if(/\bbr\b/.test(accept)){res.setHeader('Content-Encoding','br');return brotliCompressSync(buf,{params:{[zconstants.BROTLI_PARAM_QUALITY]:5}});}
+ if(/\bgzip\b/.test(accept)){res.setHeader('Content-Encoding','gzip');return gzipSync(buf,{level:6});}
+ return buf;
+};
+const send=(req,res,status,type,body,extra={})=>{
+ const out=encodeBody(req,res,body,type);
+ res.writeHead(status,{...res.getHeaders(),'Content-Type':type,'Content-Length':out.length,...extra});
+ return res.end(out);
+};
+const json=(res,status,data)=>{res.setHeader('Cache-Control','no-store');return send(res.req||{},res,status,'application/json; charset=utf-8',JSON.stringify(data));};
 async function body(req,limit=2e6){let str='';for await(const chunk of req){str+=chunk;if(Buffer.byteLength(str)>limit) throw Error('请求过大');}return JSON.parse(str||'{}');}
 const auth=(req)=>{const token=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('session='))?.slice(8);return token&&sessions.get(token)>Date.now();};
 const attempts=new Map();
@@ -365,10 +381,15 @@ function seoHead(url,req){
 const ASSET_FILES=['style.css','theme-tandorio.css','fonts.css','app.js','admin.js'];
 let assetVersion='';
 const SERVER_BUILD=(()=>{try{return Math.floor(statSync(fileURLToPath(import.meta.url)).mtimeMs).toString(36);}catch{return '0';}})();
-function assetV(){if(assetVersion)return assetVersion;try{assetVersion=ASSET_FILES.map(f=>Math.floor(statSync(resolve('public',f)).mtimeMs).toString(36)).join('').slice(0,10);}catch{assetVersion='1';}return assetVersion;}
+function assetV(){if(assetVersion)return assetVersion;try{const sig=ASSET_FILES.map(f=>{const st=statSync(resolve('public',f));return f+':'+st.size+':'+Math.floor(st.mtimeMs);}).join('|');assetVersion=createHash('sha1').update(sig).digest('hex').slice(0,10);}catch{assetVersion='1';}return assetVersion;}
 function withAssets(html){const v=assetV();const out=html.replace(/(href|src)="\/([a-z0-9.-]+\.(?:css|js))"/gi,(m,attr,f)=>`${attr}="/${f}?v=${v}"`);
  return out.replace('</head>',`<meta name="meridian-assets" content="${v}"><meta name="meridian-build" content="${SERVER_BUILD}"></head>`);}
-function renderIndex(url,req){const extra=(url.pathname==='/account'||url.pathname==='/pay')?'<meta name="robots" content="noindex,follow">':'';return withAssets(readFileSync(resolve('public','index.html'),'utf8').replace('</head>',seoHead(url,req)+extra+'</head>'));}
+function renderIndex(url,req){
+ const extra=(url.pathname==='/account'||url.pathname==='/pay')?'<meta name="robots" content="noindex,follow">':'';
+ const c=content('published'),hero=(c.page&&c.page.heroImage)||'/assets/hero.svg';
+ const preloads=`<link rel="preload" as="image" href="${escHtml(hero)}" fetchpriority="high"><link rel="preload" as="font" type="font/woff2" href="/fonts/poppins-400.woff2" crossorigin>`;
+ return withAssets(readFileSync(resolve('public','index.html'),'utf8').replace('</head>',preloads+seoHead(url,req)+extra+'</head>'));
+}
 const escHtml=(x)=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const policyList=()=>(content('published').pages||[]).filter(p=>p&&p.id);
 function policyExists(name){return policyList().some(p=>p.id===name);}
@@ -768,8 +789,8 @@ const server=http.createServer(async(req,res)=>{
   if(policyExists(url.pathname.replace(/^\//,''))){
    const html=policyPage(url.pathname.slice(1),String(url.searchParams.get('lang')||'').toLowerCase());
    if(!html){res.writeHead(404,{'Content-Type':'text/html; charset=utf-8'});return res.end('<!doctype html><meta charset="utf-8"><title>Not found</title><p>Page not found. <a href="/">Back to the shop</a></p>');}
-   res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','public, max-age=300');
-   return res.end(html);
+   res.setHeader('Cache-Control','public, max-age=300');
+   return send(req,res,200,'text/html; charset=utf-8',html);
   }
   if(url.pathname==='/robots.txt'){res.setHeader('Content-Type','text/plain; charset=utf-8');res.setHeader('Cache-Control','public, max-age=3600');return res.end(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n${publicBase?`Sitemap: ${publicBase}/sitemap.xml\n`:''}`);}
   if(url.pathname==='/sitemap.xml'){const xml=sitemapXML();if(!xml){res.writeHead(404);return res.end('Not found');}res.setHeader('Content-Type','application/xml; charset=utf-8');res.setHeader('Cache-Control','public, max-age=3600');return res.end(xml);}
@@ -793,15 +814,18 @@ const server=http.createServer(async(req,res)=>{
   if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg','assets/favicon.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
   if(file==='index.html'){
    if(req.method==='GET'){try{const vid=visitorId(req,res);trackEvent('page',{vid,source:sourceOf(req)});}catch{}}
-   res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-cache');return res.end(renderIndex(url,req));
+   res.setHeader('Cache-Control','no-cache');return send(req,res,200,'text/html; charset=utf-8',renderIndex(url,req));
   }
   const abs=resolve('public',file),st=statSync(abs);
   const etag='"'+st.size.toString(16)+'-'+Math.floor(st.mtimeMs).toString(16)+'"';
-  res.setHeader('Cache-Control','no-cache');res.setHeader('ETag',etag);
-  if(req.headers['if-none-match']===etag){res.writeHead(304);return res.end();}
-  res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'})[extname(file)]);
+  const versioned=!!url.searchParams.get('v');
+  res.setHeader('Cache-Control',versioned?'public, max-age=31536000, immutable':'no-cache');
+  res.setHeader('ETag',etag);
+  if(!versioned&&req.headers['if-none-match']===etag){res.writeHead(304);return res.end();}
+  const ext=extname(file);
+  const type=({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.woff2':'font/woff2','.json':'application/json; charset=utf-8'})[ext]||'application/octet-stream';
   const payload=readFileSync(abs);
-  return res.end(file.endsWith('.html')?withAssets(payload.toString('utf8')):payload);
+  return send(req,res,200,type,file.endsWith('.html')?withAssets(payload.toString('utf8')):payload,{ETag:etag});
  }catch(e){json(res,400,{error:e.message||'请求失败'});}
 });
 server.listen(Number(process.env.PORT||3000),process.env.HOST||'0.0.0.0',()=>console.log('MERIDIAN 商城已启动，端口 '+(process.env.PORT||3000)));
