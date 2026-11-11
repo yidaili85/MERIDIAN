@@ -80,6 +80,7 @@ test('customizer: artwork upload + order carries placement', async t => {
   r = await post('/api/orders', {
     name: 'Custom Buyer', email: 'buyer@example.com', phone: '+1 617 555 0100',
     address: '1 Test Street', city: 'Boston', state: 'MA', postalCode: '02108', country: 'US',
+    note: 'Please put the shield a little higher.',
     items: [{ id: 'p1', quantity: 1, artwork: { url, x: 48, y: 52, size: 30, preview: url } }],
   });
   assert.ok([200, 201].includes(r.status), 'order created: ' + r.status);
@@ -90,6 +91,9 @@ test('customizer: artwork upload + order carries placement', async t => {
   assert.equal(detail.items[0].artwork.url, url);
   assert.equal(detail.items[0].artwork.size, 30);
   assert.equal(detail.items[0].artwork.preview, url);
+  assert.equal(detail.items[0].fee, 25, 'custom dial fee applied per item');
+  // 定制商品单价 189 + 25 定制费，运费按商品+定制合计计算
+  assert.ok(detail.total >= 214, 'total includes the customisation fee: ' + detail.total);
 
   // 非本站图案路径一律丢弃
   r = await post('/api/orders', {
@@ -101,6 +105,7 @@ test('customizer: artwork upload + order carries placement', async t => {
   const o2 = await r.json();
   const d2 = await (await fetch(`${base()}/api/orders/lookup?email=${encodeURIComponent('buyer2@example.com')}&id=${encodeURIComponent(o2.id)}`)).json();
   assert.equal(d2.items[0].artwork, undefined);
+  assert.equal(d2.items[0].fee, 0, 'no fee without valid artwork');
 
   // 越界数值被夹紧
   r = await post('/api/orders', {

@@ -204,7 +204,8 @@ const content=(field)=>{
  // 兼容旧库：缺政策页 / 分类 / 商品新字段时补默认值，否则保存会被校验拒绝、政策页 404
  if(!Array.isArray(c.pages))c.pages=seed.pages;
  if(!Array.isArray(c.categories))c.categories=seed.categories;
- c.products=(Array.isArray(c.products)?c.products:[]).map(p=>({...p,badge:typeof p.badge==='string'?p.badge:'',specs:p.specs&&typeof p.specs==='object'&&!Array.isArray(p.specs)?p.specs:{},images:Array.isArray(p.images)&&p.images.length?p.images:(p.image?[p.image]:[]),description:typeof p.description==='string'?p.description:'',active:p.active!==false,customizer:cleanCustomizer(p.customizer)}));
+ c.customizerFee=Number.isFinite(Number(raw.customizerFee))?Math.min(500,Math.max(0,Number(raw.customizerFee))):25;
+c.products=(Array.isArray(c.products)?c.products:[]).map(p=>({...p,badge:typeof p.badge==='string'?p.badge:'',specs:p.specs&&typeof p.specs==='object'&&!Array.isArray(p.specs)?p.specs:{},images:Array.isArray(p.images)&&p.images.length?p.images:(p.image?[p.image]:[]),description:typeof p.description==='string'?p.description:'',active:p.active!==false,customizer:cleanCustomizer(p.customizer)}));
  c.whatsapp={...whatsappDefaults,...raw.whatsapp,messages:{...whatsappDefaults.messages,...raw.whatsapp?.messages}};
  return c;
 };
@@ -277,6 +278,7 @@ function validate(c){
  c.whatsapp={enabled:w.enabled,phone,messages:Object.fromEntries(['en','de','es'].map(lang=>[lang,w.messages[lang]]))};
  }
  if(!/^#[0-9a-f]{6}$/i.test(c.accent)) throw Error('主题色需要使用六位十六进制颜色');
+ if(c.customizerFee!==undefined){const f=Number(c.customizerFee);if(!Number.isFinite(f)||f<0||f>500)throw Error('定制加价需在 0–500 之间');c.customizerFee=f;}
  for(const lang of ['de','es']) {
  const page=c.translations?.[lang];if(page&&(typeof page!=='object'||Object.values(page).some(v=>typeof v!=='string')))throw Error('Invalid page translations');
  for(const item of [...c.products,...c.sections])if(item[lang]&&(typeof item[lang]!=='object'||Object.values(item[lang]).some(v=>typeof v!=='string')))throw Error('Invalid translations');
@@ -764,7 +766,7 @@ const server=http.createServer(async(req,res)=>{
     const sameId=d.customerId&&d.customerId===v.id;
     const sameMail=String(d.email||'').toLowerCase()===String(v.email||'').toLowerCase();
     if(!sameId&&!sameMail)continue;
-    mine.push({id:r.id,created:r.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),paymentPolicy:d.paymentPolicy||'',tracking:d.tracking||null,address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''}});
+    mine.push({id:r.id,created:r.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,fee:i.fee||0,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),paymentPolicy:d.paymentPolicy||'',tracking:d.tracking||null,address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''}});
     if(mine.length>=30)break;
    }
    return json(res,200,{orders:mine});
@@ -778,7 +780,7 @@ const server=http.createServer(async(req,res)=>{
    const hit=rows.find(r=>r.id.toUpperCase()===ref&&String((JSON.parse(r.details)||{}).email||'').toLowerCase()===email);
    if(!hit)return json(res,404,{error:'没有找到匹配的订单，请核对邮箱和订单号'});
    const d=JSON.parse(hit.details);
-   return json(res,200,{id:hit.id,created:hit.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),countryName:d.countryName||d.country,tracking:d.tracking||null});
+   return json(res,200,{id:hit.id,created:hit.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,fee:i.fee||0,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),countryName:d.countryName||d.country,tracking:d.tracking||null});
   }
   if(url.pathname.startsWith('/api/products/')&&req.method==='GET'){
    const id=decodeURIComponent(url.pathname.slice('/api/products/'.length));
@@ -802,8 +804,10 @@ const server=http.createServer(async(req,res)=>{
   const artURL=art&&typeof art.url==='string'&&/^\/uploads\/[a-f0-9]{32}\.png$/.test(art.url)?art.url:null;
   const clamp=(v,d,lo,hi)=>{const n=Number(v);return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):d;};
   const prevURL=art&&typeof art.preview==='string'&&/^\/uploads\/[a-f0-9]{32}\.png$/.test(art.preview)?art.preview:null;
-  return{id:p.id,name:p.name,price:p.price,quantity:i.quantity,...(artURL?{artwork:{url:artURL,x:clamp(art.x,50,0,100),y:clamp(art.y,50,0,100),size:clamp(art.size,34,5,120),rot:clamp(art.rot,0,-45,45),...(prevURL?{preview:prevURL}:{})}}:{})};});
-   const shipRule=cleanShipping(shippingConfig());const shipping=shippingCents(total,shipRule);const details={shippingRule:shipRule,...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:((hasVipItem||(viewer&&viewer.level==='vip'))?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',city:String(b.city||'').slice(0,80),state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
+  const feeD=artURL?(Number(c.customizerFee)||0):0;
+  total+=Math.round(feeD*100)*i.quantity;
+  return{id:p.id,name:p.name,price:p.price,quantity:i.quantity,fee:feeD,...(artURL?{artwork:{url:artURL,x:clamp(art.x,50,0,100),y:clamp(art.y,50,0,100),size:clamp(art.size,34,5,120),rot:clamp(art.rot,0,-45,45),...(prevURL?{preview:prevURL}:{})}}:{})};});
+   const shipRule=cleanShipping(shippingConfig());const shipping=shippingCents(total,shipRule);const details={note:String(b.note||'').slice(0,500),shippingRule:shipRule,...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:((hasVipItem||(viewer&&viewer.level==='vip'))?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',city:String(b.city||'').slice(0,80),state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
   }

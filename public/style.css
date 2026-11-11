@@ -428,3 +428,19 @@ body.has-cookie{padding-bottom:92px}
 .czr-zoom button{width:52px;height:48px;font-size:22px}
 .czr-zoom output{font-size:15px;min-width:64px}
 @media(max-width:560px){.art-handle{width:32px;height:32px;margin:-16px 0 0 -16px}.czr-zoom button{width:60px;height:52px;font-size:24px}}
+
+.stage.armed{touch-action:none;cursor:grab}
+.stage.armed.dragging{cursor:grabbing}
+.stage.armed::after{content:'⇕ 拖动 · 双指缩放 · 圆点调大小';position:absolute;left:8px;bottom:8px;padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;letter-spacing:.04em;pointer-events:none}
+.stage.armed.dragging::after{opacity:.35}
+.order-note{display:grid;gap:6px;margin:14px 0 0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.order-note textarea{font:inherit;font-size:14px;letter-spacing:0;text-transform:none;color:var(--ink);padding:10px 12px;border:1px solid var(--line);border-radius:8px;resize:vertical;min-height:76px}
+.cz-fee{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+@media(max-width:560px){.stage.armed::after{font-size:9px;left:6px;bottom:6px}}
+
+.ord-item{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;border-bottom:1px dashed var(--line);padding:8px 0}
+.ord-item p{margin:0}
+.art-admin-big{width:72px;height:72px}
+.ord-note{margin:10px 0 0;padding:10px 12px;border-left:3px solid var(--accent);background:#fbfaf7}
+.ord-note strong{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.ord-note p{margin:0;font-size:13px;line-height:1.5}
