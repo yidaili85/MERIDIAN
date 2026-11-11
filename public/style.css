@@ -380,3 +380,43 @@ body.has-cookie{padding-bottom:92px}
 .czr-shot[hidden]{display:none}
 .czr-shot img{width:100%;max-width:260px;border:1px solid var(--line);border-radius:10px;cursor:zoom-in;background:#fff}
 .czr-shot figcaption{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+/* ---------- /custom 定制目录页 ---------- */
+.nav-custom{white-space:nowrap}
+.main-nav a.active{text-decoration:underline;text-underline-offset:6px}
+.cz-page{max-width:1180px;margin:0 auto;padding:0 20px 80px}
+.cz-hero{padding:56px 0 34px;max-width:760px}
+.cz-hero h1{font-size:clamp(30px,4.4vw,50px);line-height:1.1;margin:10px 0 14px}
+.cz-lede{color:var(--muted);font-size:16px;line-height:1.6;max-width:640px}
+.cz-steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:0;margin:26px 0 0}
+.cz-steps li{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.45;color:var(--muted)}
+.cz-steps b{flex:0 0 auto;width:24px;height:24px;border-radius:999px;border:1px solid var(--line);display:grid;place-items:center;font-size:12px;color:var(--ink)}
+.cz-h2{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin:8px 0 18px}
+.cz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:26px}
+.cz-card{display:flex;flex-direction:column;gap:12px}
+.cz-card-img{position:relative;display:block;aspect-ratio:4/5;overflow:hidden;background:#f2efe9;border-radius:2px}
+.cz-card-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s ease}
+.cz-card-img:hover img{transform:scale(1.03)}
+.cz-card-flag{position:absolute;left:10px;top:10px;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.92);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#1a1a1a}
+.cz-card-body{display:grid;gap:6px}
+.cz-card-body h3{margin:0;font-size:15px;font-weight:500}
+.cz-card-body h3 a{color:inherit;text-decoration:none}
+.cz-card-price{margin:0 0 6px;font-size:14px;color:var(--muted)}
+.cz-card-price s{opacity:.6;margin-right:6px}
+.cz-foot{margin-top:26px;max-width:640px}
+@media(max-width:640px){.cz-steps{grid-template-columns:1fr}.cz-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px}}
+
+.cz-grid{max-width:100%}
+.cz-grid.few{grid-template-columns:repeat(auto-fill,minmax(240px,300px))}
+.cz-page{padding-bottom:120px}
+.cz-steps li span{max-width:30ch}
+
+/* 首页定制入口条 */
+.cz-band{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;margin:0;padding:34px clamp(22px,4vw,64px);border-top:1px solid rgba(244,239,228,.12);background:linear-gradient(100deg,#101a16,#1d2b24 62%,#101a16);color:#f4efe4;text-decoration:none;border-radius:2px}
+.cz-band:hover{background:linear-gradient(100deg,#0d1512,#24352c 62%,#0d1512)}
+.cz-band-copy{display:grid;gap:4px}
+.cz-band-copy .eyebrow{color:#e0b93a;margin:0}
+.cz-band-copy strong{font-size:clamp(19px,2.4vw,26px);font-weight:500;letter-spacing:-.01em}
+.cz-band-sub{color:#d3cdbe;font-size:13.5px;max-width:52ch}
+.cz-band-cta{font-size:12px;letter-spacing:.18em;text-transform:uppercase;border:1px solid rgba(244,239,228,.4);padding:12px 18px;white-space:nowrap}
+@media(max-width:560px){.cz-band{padding:20px 16px;flex-direction:column;align-items:flex-start}.cz-band-cta{width:100%;text-align:center}}

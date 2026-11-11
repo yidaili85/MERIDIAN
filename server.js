@@ -432,7 +432,7 @@ ${canonical?`<link rel="canonical" href="${escHtml(canonical)}">`:''}
 function sitemapXML(){
  if(!publicBase)return '';
  const c=content('published'),last=new Date().toISOString().slice(0,10);
- const urls=[`<url><loc>${publicBase}/</loc><lastmod>${last}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+ const urls=[`<url><loc>${publicBase}/custom</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`,`<url><loc>${publicBase}/</loc><lastmod>${last}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
   ...c.products.filter(p=>p.active&&effectiveAccess(p,categoryAccessMap(c))==='all').map(p=>`<url><loc>${publicBase}/?product=${encodeURIComponent(p.id)}</loc><lastmod>${last}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`)];
  const pageUrls=(c.pages||[]).filter(pg=>pg&&pg.id).map(pg=>`<url><loc>${publicBase}/${encodeURIComponent(pg.id)}</loc><lastmod>${last}</lastmod><changefreq>monthly</changefreq><priority>0.4</priority></url>`);
  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.concat(pageUrls).join('')}</urlset>`;
@@ -834,7 +834,7 @@ const server=http.createServer(async(req,res)=>{
    res.setHeader('Cache-Control','public, max-age=31536000, immutable');
    return res.end(readFileSync(f));
   }
-  const file=url.pathname==='/admin'?'admin.html':(url.pathname==='/'||url.pathname==='/account'||url.pathname==='/pay')?'index.html':url.pathname.slice(1);
+  const file=url.pathname==='/admin'?'admin.html':(url.pathname==='/'||url.pathname==='/account'||url.pathname==='/pay'||url.pathname==='/custom')?'index.html':url.pathname.slice(1);
   if(!['index.html','admin.html','app.js','admin.js','style.css','fonts.css','theme-tandorio.css','assets/hero.svg','assets/classic.svg','assets/noir.svg','assets/strap.svg','assets/case.svg','assets/favicon.svg'].includes(file)){res.writeHead(404);return res.end('Not found');}
   if(file==='index.html'){
    if(req.method==='GET'){try{const vid=visitorId(req,res);trackEvent('page',{vid,source:sourceOf(req)});}catch{}}
