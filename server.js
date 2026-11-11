@@ -9,7 +9,8 @@ import { brotliCompressSync, gzipSync, constants as zconstants } from 'node:zlib
 import {COUNTRIES, byCode, postcodeValid, stateList} from './countries.js';
 import { fileURLToPath } from 'node:url';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
-const uploadDir = resolve(dir,'uploads'); mkdirSync(uploadDir,{recursive:true});
+const uploadDir = resolve(dir,'uploads');
+const artworkHits=new Map(); mkdirSync(uploadDir,{recursive:true});
 // 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
 const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new URL(process.env.PUBLIC_BASE_URL);return u.protocol==='https:'&&u.pathname==='/'?u.origin:''}catch{return ''}})();
 // 未支付订单保留时长（分钟），0 表示关闭自动释放库存
@@ -203,9 +204,14 @@ const content=(field)=>{
  // 兼容旧库：缺政策页 / 分类 / 商品新字段时补默认值，否则保存会被校验拒绝、政策页 404
  if(!Array.isArray(c.pages))c.pages=seed.pages;
  if(!Array.isArray(c.categories))c.categories=seed.categories;
- c.products=(Array.isArray(c.products)?c.products:[]).map(p=>({...p,badge:typeof p.badge==='string'?p.badge:'',specs:p.specs&&typeof p.specs==='object'&&!Array.isArray(p.specs)?p.specs:{},images:Array.isArray(p.images)&&p.images.length?p.images:(p.image?[p.image]:[]),description:typeof p.description==='string'?p.description:'',active:p.active!==false}));
+ c.products=(Array.isArray(c.products)?c.products:[]).map(p=>({...p,badge:typeof p.badge==='string'?p.badge:'',specs:p.specs&&typeof p.specs==='object'&&!Array.isArray(p.specs)?p.specs:{},images:Array.isArray(p.images)&&p.images.length?p.images:(p.image?[p.image]:[]),description:typeof p.description==='string'?p.description:'',active:p.active!==false,customizer:cleanCustomizer(p.customizer)}));
  c.whatsapp={...whatsappDefaults,...raw.whatsapp,messages:{...whatsappDefaults.messages,...raw.whatsapp?.messages}};
  return c;
+};
+const cleanCustomizer=(v)=>{
+ const o=(v&&typeof v==='object'&&!Array.isArray(v))?v:{};
+ const num=(x,d,lo,hi)=>{const n=Number(x);return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):d;};
+ return {enabled:o.enabled===true,x:num(o.x,50,0,100),y:num(o.y,50,0,100),size:num(o.size,34,5,120)};
 };
 const save=(field,value)=>db.prepare(`UPDATE content SET ${field}=? WHERE id=1`).run(JSON.stringify(value));
 // —— 未支付订单过期：释放库存，避免弃单长期占用 ——
@@ -628,6 +634,20 @@ const server=http.createServer(async(req,res)=>{
     return json(res,201,{url:urls[0],urls});
    }
   }
+  if(url.pathname==='/api/artwork'&&req.method==='POST'){
+   const ip=req.socket.remoteAddress||'x';const now=Date.now();const hits=(artworkHits.get(ip)||[]).filter(t=>now-t<600000);if(hits.length>=20)return json(res,429,{error:'上传过于频繁，请稍后再试'});
+   const b=await body(req,8e6);const data=typeof b.data==='string'?b.data:'';
+   if(!data)throw Error('缺少图案文件');
+   const buf=Buffer.from(data.replace(/^data:[^,]*,/,''),'base64');
+   if(!buf.length)throw Error('图案数据无效');
+   if(buf.length>2*1024*1024)throw Error('图案不能超过 2MB');
+   const isPng=buf[0]===0x89&&buf.toString('ascii',1,4)==='PNG';
+   if(!isPng)throw Error('请上传透明背景 PNG');
+   const name=createHash('sha256').update(buf).digest('hex').slice(0,32)+'.png';
+   writeFileSync(join(uploadDir,name),buf);
+   artworkHits.set(ip,[...hits,now]);
+   return json(res,201,{url:'/uploads/'+name});
+  }
   if(url.pathname==='/api/payments/methods'&&req.method==='GET')return json(res,200,methods(paymentConfigFull(),paymentEnv()));
   if(url.pathname==='/api/payments/paypal/webhook'&&req.method==='POST'){
    const event=await body(req);await verifyPayPalWebhook(event,req.headers,paymentConfigFull(),paymentEnv());
@@ -744,7 +764,7 @@ const server=http.createServer(async(req,res)=>{
     const sameId=d.customerId&&d.customerId===v.id;
     const sameMail=String(d.email||'').toLowerCase()===String(v.email||'').toLowerCase();
     if(!sameId&&!sameMail)continue;
-    mine.push({id:r.id,created:r.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price})),paymentPolicy:d.paymentPolicy||'',tracking:d.tracking||null,address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''}});
+    mine.push({id:r.id,created:r.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),paymentPolicy:d.paymentPolicy||'',tracking:d.tracking||null,address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''}});
     if(mine.length>=30)break;
    }
    return json(res,200,{orders:mine});
@@ -758,7 +778,7 @@ const server=http.createServer(async(req,res)=>{
    const hit=rows.find(r=>r.id.toUpperCase()===ref&&String((JSON.parse(r.details)||{}).email||'').toLowerCase()===email);
    if(!hit)return json(res,404,{error:'没有找到匹配的订单，请核对邮箱和订单号'});
    const d=JSON.parse(hit.details);
-   return json(res,200,{id:hit.id,created:hit.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price})),countryName:d.countryName||d.country,tracking:d.tracking||null});
+   return json(res,200,{id:hit.id,created:hit.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),countryName:d.countryName||d.country,tracking:d.tracking||null});
   }
   if(url.pathname.startsWith('/api/products/')&&req.method==='GET'){
    const id=decodeURIComponent(url.pathname.slice('/api/products/'.length));
@@ -778,7 +798,10 @@ const server=http.createServer(async(req,res)=>{
    if(!b.name?.trim()||!b.phone?.trim()||!b.address?.trim()||!Array.isArray(b.items)||!b.items.length||b.items.length>100)return json(res,400,{error:'Please complete your shipping information and select a product'});
    if([b.name,b.phone,b.address].some(x=>typeof x!=='string'||x.length>500))throw Error('Shipping information is too long');
    const c=content('published'),draft=content('draft'),seen=new Set();let total=0,hasVipItem=false;
-   const viewer=viewerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');const itemAccess=effectiveAccess(p,catMap);if(!canView(itemAccess,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');if(itemAccess==='vip')hasVipItem=true;seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);return{id:p.id,name:p.name,price:p.price,quantity:i.quantity};});
+   const viewer=viewerFromReq(req),catMap=categoryAccessMap(c);const items=b.items.map(i=>{const p=c.products.find(p=>p.id===i.id&&p.active);if(seen.has(i.id)||!p||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>p.stock)throw Error('A product is unavailable or has insufficient stock. Please refresh and try again.');const itemAccess=effectiveAccess(p,catMap);if(!canView(itemAccess,viewer))throw Error('该商品仅限指定等级会员购买，请登录相应等级账号');if(itemAccess==='vip')hasVipItem=true;seen.add(i.id);total+=Math.round(p.price*100)*i.quantity;p.stock-=i.quantity;const d=draft.products.find(x=>x.id===p.id);if(d)d.stock=Math.max(0,d.stock-i.quantity);const art=i.artwork&&typeof i.artwork==='object'?i.artwork:null;
+  const artURL=art&&typeof art.url==='string'&&/^\/uploads\/[a-f0-9]{32}\.png$/.test(art.url)?art.url:null;
+  const clamp=(v,d,lo,hi)=>{const n=Number(v);return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):d;};
+  return{id:p.id,name:p.name,price:p.price,quantity:i.quantity,...(artURL?{artwork:{url:artURL,x:clamp(art.x,50,0,100),y:clamp(art.y,50,0,100),size:clamp(art.size,34,5,120)}}:{})};});
    const shipRule=cleanShipping(shippingConfig());const shipping=shippingCents(total,shipRule);const details={shippingRule:shipRule,...(customerFromReq(req)?{customerId:customerFromReq(req).id}:{}),paymentPolicy:PAYMENT_RULES_OFF?null:((hasVipItem||(viewer&&viewer.level==='vip'))?'usdt':'paypal'),country:String(b.country||'').toUpperCase().slice(0,100),countryName:(byCode(b.country)||{}).name||'',city:String(b.city||'').slice(0,80),state:String(b.state||'').slice(0,60),postalCode:String(b.postalCode||'').slice(0,40),address2:String(b.address2||'').slice(0,200),email:String(b.email||'').slice(0,200),currency:'USD',name:b.name.trim(),phone:b.phone.trim(),address:b.address.trim(),items,total:(total+shipping)/100,shipping:shipping/100,status:'Awaiting confirmation — unpaid'};const id='MY'+Date.now()+randomBytes(3).toString('hex');
    const accessToken=randomBytes(32).toString('hex');
    db.exec('BEGIN');try{save('published',c);save('draft',draft);db.prepare('INSERT INTO orders VALUES (?,?,?)').run(id,new Date().toISOString(),JSON.stringify(details));db.prepare('INSERT INTO order_access VALUES (?,?)').run(id,digest(accessToken));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}queueOrderMail({id,...details},accessToken);return json(res,201,{id,...details,accessToken});
