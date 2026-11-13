@@ -11,7 +11,7 @@ import {COUNTRIES, byCode, postcodeValid, stateList} from './countries.js';
 import { fileURLToPath } from 'node:url';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
 const uploadDir = resolve(dir,'uploads');
-const artworkHits=new Map(),orderHits=new Map(),registerHits=new Map(),trackHits=new Map(); mkdirSync(uploadDir,{recursive:true});
+const artworkHits=new Map(),orderHits=new Map(),registerHits=new Map(),trackHits=new Map(),webhookHits=new Map(); mkdirSync(uploadDir,{recursive:true});
 // 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
 const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new URL(process.env.PUBLIC_BASE_URL);return u.protocol==='https:'&&u.pathname==='/'?u.origin:''}catch{return ''}})();
 const secureCookies=Boolean(publicBase)||process.env.COOKIE_SECURE==='true';
@@ -377,7 +377,7 @@ const auth=(req)=>{const token=(req.headers.cookie||'').split(';').map(s=>s.trim
 const attempts=new Map();
 const lookups=new Map();
 const normalizeIP=(value)=>String(value||'').replace(/^::ffff:/,'');
-const trustedProxy=(value)=>{const ip=normalizeIP(value);return ip==='127.0.0.1'||ip==='::1'||ip.startsWith('10.')||ip.startsWith('192.168.')||/^172\.(1[6-9]|2\d|3[01])\./.test(ip)||/^(?:fc|fd)[0-9a-f]{0,2}:/i.test(ip);};
+const trustedProxy=(value)=>{const ip=normalizeIP(value);return ip==='127.0.0.1'||ip==='::1'||ip.startsWith('10.')||ip.startsWith('192.168.')||/^172\.(1[6-9]|2\d|3[01])\./.test(ip)||/^(?:fc|fd)[0-9a-f]{2}:/i.test(ip);};
 const clientIP=(req)=>{
  const remote=normalizeIP(req.socket.remoteAddress)||'unknown';
  if(!trustedProxy(remote))return remote;
@@ -786,14 +786,14 @@ const server=http.createServer(async(req,res)=>{
    const pay=getPayment(id);
    return json(res,200,{id:row.id,created:row.created,status:d.status,items:d.items||[],shipping:d.shipping||0,total:d.total,currency:'USD',
     address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''},
-    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),allowed:allowedProviders(paymentConfigFull(),paymentEnv(),PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)),payment:pay?paymentView(pay):null,
+    policy:PAYMENT_RULES_OFF?null:(d.paymentPolicy||null),payable:orderPayable({details:d}),allowed:orderPayable({details:d})?allowedProviders(paymentConfigFull(),paymentEnv(),PAYMENT_RULES_OFF?null:(d.paymentPolicy||null)):[],payment:pay?paymentView(pay):null,
     adminHint:(()=>{try{return auth(req)?paymentGapHint(d.paymentPolicy||null):null;}catch{return null;}})()});
   }
   const paymentRoute=url.pathname.match(/^\/api\/orders\/([^/]+)\/(payment|capture|transaction)$/);
   if(paymentRoute){
    const id=paymentRoute[1],token=req.headers.authorization?.replace(/^Bearer /,'');const access=db.prepare('SELECT token_hash FROM order_access WHERE order_id=?').get(id);
    if(!token||!access||digest(token)!==access.token_hash)return json(res,403,{error:'Order access denied'});
-   if(req.method==='GET'&&paymentRoute[2]==='payment'){const o=getOrder(id),policy=o.details.paymentPolicy||null;return json(res,200,{id,total:o.details.total,currency:o.details.currency,policy,allowed:allowedProviders(paymentConfigFull(),paymentEnv(),policy),payment:paymentView(getPayment(id))});}
+   if(req.method==='GET'&&paymentRoute[2]==='payment'){const o=getOrder(id),policy=o.details.paymentPolicy||null,payable=orderPayable(o);return json(res,200,{id,total:o.details.total,currency:o.details.currency,policy,payable,allowed:payable?allowedProviders(paymentConfigFull(),paymentEnv(),policy):[],payment:paymentView(getPayment(id))});}
    if(req.method==='POST')return await locked(id,async()=>{
     const existing=getPayment(id),o=getOrder(id);
     if(!orderPayable(o))throw httpError(409,'订单已过期，不能继续付款');
