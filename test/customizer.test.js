@@ -11,7 +11,7 @@ const port = 41300 + Math.floor(Math.random() * 400);
 const dir = mkdtempSync(join(tmpdir(), 'meridian-czr-'));
 
 // 1x1 透明 PNG
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 async function start() {
   writeFileSync(join(dir, 'config.env'), 'ADMIN_PASSWORD=czr-pass-123\n');

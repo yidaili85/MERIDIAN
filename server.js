@@ -3,16 +3,18 @@ import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, timingSafeEqual, scryptSync, createHash } from 'node:crypto';
 import { createMailer, orderEmail } from './mailer.js';
-import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
-import { brotliCompressSync, gzipSync, constants as zconstants } from 'node:zlib';
+import { brotliCompressSync, gzipSync, inflateSync, constants as zconstants } from 'node:zlib';
+import { isIP } from 'node:net';
 import {COUNTRIES, byCode, postcodeValid, stateList} from './countries.js';
 import { fileURLToPath } from 'node:url';
 const dir = process.env.DATA_DIR || './data'; mkdirSync(dir,{recursive:true});
 const uploadDir = resolve(dir,'uploads');
-const artworkHits=new Map(); mkdirSync(uploadDir,{recursive:true});
+const artworkHits=new Map(),orderHits=new Map(),registerHits=new Map(),trackHits=new Map(); mkdirSync(uploadDir,{recursive:true});
 // 公网地址：只接受纯 HTTPS 源，用于 canonical / OG / sitemap
 const publicBase=(()=>{if(!process.env.PUBLIC_BASE_URL)return '';try{const u=new URL(process.env.PUBLIC_BASE_URL);return u.protocol==='https:'&&u.pathname==='/'?u.origin:''}catch{return ''}})();
+const secureCookies=Boolean(publicBase)||process.env.COOKIE_SECURE==='true';
 // 未支付订单保留时长（分钟），0 表示关闭自动释放库存
 const orderTTL=Math.max(0,Number(process.env.ORDER_TTL_MINUTES??30))*60000;
 const MAIL_FIELDS=['provider','apiKey','from','fromName','apiUrl','notifyEmail','whatsapp'];
@@ -44,7 +46,7 @@ function visitorId(req,res){
  const m=raw.match(/(?:^|;\s*)mid=([a-f0-9]{16,64})/);
  if(m)return m[1];
  const id=randomBytes(16).toString('hex');
- const cookie=`mid=${id}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${process.env.COOKIE_SECURE==='true'?'; Secure':''}`;
+ const cookie=`mid=${id}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${secureCookies?'; Secure':''}`;
  const prev=res.getHeader('Set-Cookie');
  res.setHeader('Set-Cookie',prev?[].concat(prev,cookie):cookie);
  return id;
@@ -95,7 +97,7 @@ const viewerFromReq=(req)=>{try{return auth(req)?adminViewer:customerFromReq(req
 function setCustomerCookie(res,id){
  const token=randomBytes(32).toString('hex');
  db.prepare('INSERT INTO customer_sessions VALUES (?,?,?)').run(digest(token),id,Date.now()+30*86400000);
- res.setHeader('Set-Cookie',`meridian_customer=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
+ res.setHeader('Set-Cookie',`meridian_customer=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secureCookies?'; Secure':''}`);
 }
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS content (id INTEGER PRIMARY KEY, draft TEXT NOT NULL, published TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created TEXT NOT NULL, details TEXT NOT NULL);');
 db.exec("CREATE TABLE IF NOT EXISTS events (ts TEXT NOT NULL, day TEXT NOT NULL, hour INTEGER NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL DEFAULT '', vid TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS events_lookup ON events(day,kind);");
@@ -192,8 +194,15 @@ const seed={closingTitle:'Make every moment yours.',closingText:'Your own rhythm
  {id:'returns',title:'Returns & Refunds',de:{title:'Rückgabe & Erstattung'},es:{title:'Devoluciones y reembolsos'},body:`You may return an unused item in its original packaging within 30 days of delivery for a full refund of the item price.\n\nTo start a return, email us with your order number. We will send return instructions. Return shipping is paid by the customer unless the item arrived damaged or incorrect.\n\nRefunds are issued to the original payment method within 5 business days of the returned item arriving and being inspected.\n\nEngraved, worn or altered items cannot be returned. Watches must be returned with all protective films and links intact.`}
 ],products:[{id:'p1',name:'The Classic — Silver',category:'watches',price:189,stock:30,image:'/assets/classic.svg',description:'A clean, understated silhouette for everyday wear. Sample product: confirm specifications with the merchant before ordering.',active:true,badge:'BESTSELLER',de:{name:'The Classic — Silber',description:'Eine klare, dezente Silhouette für jeden Tag. Musterprodukt: Spezifikationen vor der Bestellung beim Händler bestätigen.'},es:{name:'The Classic — Plata',description:'Una silueta limpia y discreta para cada día. Producto de muestra: confirma las especificaciones con el vendedor antes de comprar.'}},{id:'p2',name:'The Chronograph — Noir',category:'watches',price:249,stock:16,image:'/assets/noir.svg',description:'A striking dial with a timeless profile. Sample product; specifications are not yet confirmed.',active:true,badge:'NEW',de:{name:'The Chronograph — Noir',description:'Ein markantes Zifferblatt mit zeitlosem Profil. Musterprodukt; Spezifikationen noch nicht bestätigt.'},es:{name:'The Chronograph — Noir',description:'Una esfera distintiva con un perfil atemporal. Producto de muestra; especificaciones pendientes de confirmar.'}},{id:'p3',name:'Everyday Leather Strap',category:'straps',price:39,stock:50,image:'/assets/strap.svg',description:'Refresh your everyday watch. Sample listing: please confirm lug width and compatibility before ordering.',active:true,badge:'',de:{name:'Lederarmband Everyday',description:'Ein neuer Look für Ihre Uhr. Musterangebot: Bandanstoß und Kompatibilität vor dem Kauf bestätigen.'},es:{name:'Correa de piel Everyday',description:'Renueva tu reloj. Anuncio de muestra: confirma el ancho y la compatibilidad antes de comprar.'}},{id:'p4',name:'Weekend Watch Case',category:'storage',price:59,stock:25,image:'/assets/case.svg',description:'A dedicated place for your favourite timepiece. Sample product; final images and specifications to be supplied.',active:true,badge:'EDITORS’ PICK',de:{name:'Uhrenetui Weekend',description:'Ein fester Platz für Ihre Lieblingsuhr. Musterprodukt; finale Bilder und Spezifikationen folgen.'},es:{name:'Estuche Weekend',description:'Un lugar para tu reloj favorito. Producto de muestra; imágenes y especificaciones finales pendientes.'}}]};
 if(!db.prepare('SELECT id FROM content WHERE id=1').get()) db.prepare('INSERT INTO content VALUES (1,?,?)').run(JSON.stringify(seed),JSON.stringify(seed));
-const password=process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
-if(!process.env.ADMIN_PASSWORD) console.log(`临时管理员密码（重启后变化）: ${password}`);
+const password=(()=>{
+ if(process.env.ADMIN_PASSWORD)return process.env.ADMIN_PASSWORD;
+ const path=resolve(dir,'initial-admin-password');
+ try{const saved=readFileSync(path,'utf8').trim();if(saved.length>=16){chmodSync(path,0o600);return saved;}}catch{}
+ const generated=randomBytes(18).toString('base64url');
+ writeFileSync(path,generated+'\n',{mode:0o600});chmodSync(path,0o600);
+ console.log('管理员初始密码已保存到 DATA_DIR/initial-admin-password（权限 0600）');
+ return generated;
+})();
 const salt=randomBytes(16), hash=scryptSync(password,salt,64), sessions=new Map();
 const ADMIN_TTL=Number(process.env.ADMIN_SESSION_HOURS||8)*3600000;
 const ADMIN_REMEMBER=Number(process.env.ADMIN_REMEMBER_DAYS||30)*86400000;
@@ -233,15 +242,49 @@ function releaseOrderStock(id,reason){
  }catch(e){db.exec('ROLLBACK');throw e;}
  return true;
 }
+// 过期订单已被返库，但 PayPal 侧其实已扣款：把库存重新占回来，避免「钱收了、货卖给别人」。
+// 库存不够时返回 false，由调用方标记缺货待补，订单仍然记为已付款。
+function reviveExpiredOrderStock(id){
+ try{
+  const o=getOrder(id),items=o.details.items||[],c=content('published'),d=content('draft');
+  for(const item of items){
+   const n=Number(item.quantity)||0;
+   const p=c.products.find(x=>x.id===item.id);if(p&&Number(p.stock)<n)return false;
+   const dp=d.products.find(x=>x.id===item.id);if(dp&&Number(dp.stock)<n)return false;
+  }
+  for(const item of items){
+   const n=Number(item.quantity)||0;
+   const p=c.products.find(x=>x.id===item.id);if(p)p.stock=Number(p.stock)-n;
+   const dp=d.products.find(x=>x.id===item.id);if(dp)dp.stock=Number(dp.stock)-n;
+  }
+  o.details.stockReleased=false;o.details.restockedAt=new Date().toISOString();
+  db.exec('BEGIN');
+  try{save('published',c);save('draft',d);db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);db.exec('COMMIT');}
+  catch(e){db.exec('ROLLBACK');throw e;}
+  return true;
+ }catch{return false;}
+}
+function markLateStockShort(id){
+ try{
+  const o=getOrder(id);
+  o.details.status='Paid — 缺货待补';
+  o.details.lateCapture='stock_short';
+  o.details.stockShortAt=new Date().toISOString();
+  db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(o.details),id);
+ }catch{}
+}
 function sweepExpiredOrders(){
  if(!orderTTL)return 0;
  const cutoff=new Date(Date.now()-orderTTL).toISOString();let released=0;
  for(const row of db.prepare('SELECT id FROM orders WHERE created<?').all(cutoff)){
   try{
+   // Payment creation/capture may await a remote provider. Do not release stock
+   // while that order's critical section is still in flight.
+   if(locks.has(row.id))continue;
    const o=getOrder(row.id);if(o.details.stockReleased||o.details.status==='Paid')continue;
    const p=getPayment(row.id);
-   // 已提交链上哈希 / 已走 PayPal 的订单不自动释放：买家可能已完成付款
-   if(p&&(p.status==='paid'||p.status==='awaiting_review'||p.submittedHash||p.provider==='paypal'))continue;
+   // 只有已付款或已提交链上哈希的订单继续保留库存；普通 PayPal 弃单也必须过期返库。
+   if(p&&(p.status==='paid'||p.status==='awaiting_review'||p.submittedHash))continue;
    if(releaseOrderStock(row.id,'Expired — stock released'))released++;
   }catch{}
  }
@@ -333,6 +376,63 @@ async function body(req,limit=2e6){let str='';for await(const chunk of req){str+
 const auth=(req)=>{const token=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('session='))?.slice(8);return token&&sessions.get(token)>Date.now();};
 const attempts=new Map();
 const lookups=new Map();
+const normalizeIP=(value)=>String(value||'').replace(/^::ffff:/,'');
+const trustedProxy=(value)=>{const ip=normalizeIP(value);return ip==='127.0.0.1'||ip==='::1'||ip.startsWith('10.')||ip.startsWith('192.168.')||/^172\.(1[6-9]|2\d|3[01])\./.test(ip)||/^(?:fc|fd)[0-9a-f]{0,2}:/i.test(ip);};
+const clientIP=(req)=>{
+ const remote=normalizeIP(req.socket.remoteAddress)||'unknown';
+ if(!trustedProxy(remote))return remote;
+ const chain=String(req.headers['x-forwarded-for']||'').split(',').map(x=>normalizeIP(x.trim())).filter(x=>isIP(x));
+ if(!chain.length)return remote;
+ // Walk from the proxy nearest to us toward the client. Left-most values are
+ // attacker-controlled when Nginx uses $proxy_add_x_forwarded_for.
+ for(let i=chain.length-1;i>=0;i--)if(!trustedProxy(chain[i]))return chain[i];
+ return chain[chain.length-1];
+};
+const setBounded=(map,key,value,maxEntries=10000)=>{if(!map.has(key)&&map.size>=maxEntries)map.delete(map.keys().next().value);map.set(key,value);};
+const takeRate=(map,key,max,windowMs)=>{const now=Date.now(),hits=(map.get(key)||[]).filter(t=>now-t<windowMs);if(hits.length>=max){setBounded(map,key,hits);return false;}hits.push(now);setBounded(map,key,hits);return true;};
+const httpError=(status,message)=>Object.assign(Error(message),{status});
+const orderPayable=(order)=>!order.details.stockReleased&&!/^(?:Expired|Cancelled|Refunded)/i.test(String(order.details.status||''));
+const crc32=(buf)=>{let crc=0xffffffff;for(const byte of buf){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (crc^0xffffffff)>>>0;};
+function validPNG(buf,{requireAlpha=false}={}){
+ if(!Buffer.isBuffer(buf)||buf.length<57||!buf.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')))return false;
+ let offset=8,ihdr=false,iend=false,width=0,height=0,bitDepth=0,colorType=-1,expectedRaw=0,hasTransparency=false;const idat=[],filterOffsets=[];
+ const channels={0:1,2:3,3:1,4:2,6:4};
+ const depths={0:[1,2,4,8,16],2:[8,16],3:[1,2,4,8],4:[8,16],6:[8,16]};
+ while(offset+12<=buf.length){
+  const length=buf.readUInt32BE(offset);if(length>buf.length-offset-12)return false;
+  const type=buf.toString('ascii',offset+4,offset+8),data=buf.subarray(offset+8,offset+8+length),end=offset+12+length;
+  if(crc32(buf.subarray(offset+4,offset+8+length))!==buf.readUInt32BE(offset+8+length))return false;
+  if(!ihdr){
+   if(type!=='IHDR'||length!==13)return false;
+   ihdr=true;width=data.readUInt32BE(0);height=data.readUInt32BE(4);bitDepth=data[8];colorType=data[9];
+   const compression=data[10],filter=data[11],interlace=data[12],channelCount=channels[colorType];
+   if(!width||!height||width>8192||height>8192||width*height>16_000_000||!channelCount||!depths[colorType].includes(bitDepth)||compression!==0||filter!==0||![0,1].includes(interlace))return false;
+   const addPass=(passWidth,passHeight)=>{
+    if(passWidth<1||passHeight<1)return;
+    const rowBytes=1+Math.ceil(passWidth*channelCount*bitDepth/8);
+    for(let row=0;row<passHeight;row++){filterOffsets.push(expectedRaw);expectedRaw+=rowBytes;}
+   };
+   if(interlace===0)addPass(width,height);
+   else for(const [startX,startY,stepX,stepY] of [[0,0,8,8],[4,0,8,8],[0,4,4,8],[2,0,4,4],[0,2,2,4],[1,0,2,2],[0,1,1,2]]){
+    const passWidth=width<=startX?0:Math.ceil((width-startX)/stepX);
+    const passHeight=height<=startY?0:Math.ceil((height-startY)/stepY);
+    addPass(passWidth,passHeight);
+   }
+   if(!Number.isSafeInteger(expectedRaw)||expectedRaw>70*1024*1024)return false;
+  } else if(type==='IHDR')return false;
+  if(type==='IDAT')idat.push(data);
+  if(type==='tRNS')hasTransparency=true;
+  if(type==='IEND'){if(length!==0||end!==buf.length)return false;iend=true;break;}
+  offset=end;
+ }
+ if(!ihdr||!iend||!idat.length||(requireAlpha&&![4,6].includes(colorType)&&!hasTransparency))return false;
+ try{
+  const raw=inflateSync(Buffer.concat(idat),{maxOutputLength:expectedRaw});
+  if(raw.length!==expectedRaw)return false;
+  for(const filterOffset of filterOffsets)if(raw[filterOffset]>4)return false;
+  return true;
+ }catch{return false;}
+}
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const hostOnly=h=>{const v=String(h||'').split(',')[0].trim().toLowerCase();return /^[a-z0-9.-]+(:\d+)?$/.test(v)?v:''};
 // 反向代理（Nginx/Caddy/1Panel）后 Host 与 X-Forwarded-Host 不一致时，origin 校验会误判 403
@@ -341,7 +441,8 @@ function originAllowed(req){
  let u; try{u=new URL(origin)}catch{return false}
  if(!['http:','https:'].includes(u.protocol))return false;
  if(publicBase&&u.origin===publicBase)return true;
- const hosts=new Set([hostOnly(req.headers.host),hostOnly(req.headers['x-forwarded-host']),publicBase?new URL(publicBase).host:''].filter(Boolean));
+ const forwardedHost=trustedProxy(normalizeIP(req.socket.remoteAddress))?hostOnly(req.headers['x-forwarded-host']):'';
+ const hosts=new Set([hostOnly(req.headers.host),forwardedHost,publicBase?new URL(publicBase).host:''].filter(Boolean));
  return hosts.size>0&&hosts.has(u.host.toLowerCase());
 }
 function securityHeaders(res){
@@ -351,7 +452,7 @@ function securityHeaders(res){
  res.setHeader('Permissions-Policy','geolocation=(), microphone=(), camera=(), payment=()');
  res.setHeader('Cross-Origin-Opener-Policy','same-origin');
  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; form-action 'self' https://www.paypal.com https://www.sandbox.paypal.com; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
- if(publicBase||process.env.COOKIE_SECURE==='true') res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+ if(publicBase||secureCookies) res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
 }
 const absURL=u=>/^https:\/\//i.test(u||'')?u:(publicBase&&u?publicBase+u:'');
 function seoHead(url,req){
@@ -446,12 +547,12 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/healthz')return json(res,200,{ok:true,uptime:Math.round(process.uptime())});
   if(req.method!=='GET'&&req.method!=='HEAD'&&!originAllowed(req)) return json(res,403,{error:'不允许跨站请求'});
   if(url.pathname==='/api/login'&&req.method==='POST'){
-   const ip=req.socket.remoteAddress,now=Date.now(),a=attempts.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;} if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});
-   const b=await body(req);if(!adminPasswordOk(b.password)){a.n++;attempts.set(ip,a);return json(res,401,{error:'密码不正确'});}
+   const ip='a:'+clientIP(req),now=Date.now(),a=attempts.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;} if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});
+   const b=await body(req);if(!adminPasswordOk(b.password)){a.n++;setBounded(attempts,ip,a);return json(res,401,{error:'密码不正确'});}
    attempts.delete(ip);for(const [k,v] of sessions)if(v<now)sessions.delete(k);
    const remember=b.remember===true,ttl=remember?ADMIN_REMEMBER:ADMIN_TTL;
    const token=randomBytes(32).toString('hex');sessions.set(token,now+ttl);
-   res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(ttl/1000)}${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
+   res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(ttl/1000)}${secureCookies?'; Secure':''}`);
    return json(res,200,{ok:true,days:Math.round(ttl/86400000*10)/10});
   }
   if(url.pathname==='/api/logout'&&req.method==='POST'){const token=(req.headers.cookie||'').match(/(?:^|;\s*)session=([^;]+)/)?.[1];sessions.delete(token);res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
@@ -490,10 +591,10 @@ const server=http.createServer(async(req,res)=>{
    if(!row)return json(res,404,{error:'订单不存在'});
    const d=JSON.parse(row.details)||{};
    const pay=getPayment(id);
-   if(pay&&['paid','paid_manual'].includes(String(pay.status||'')))return json(res,400,{error:'该订单已付款，改运费会导致金额不一致。请先退款或新建订单。'});
+   if(pay)return json(res,400,{error:'该订单已创建支付记录，运费和总额已锁定。请取消原支付后再调整。'});
    const b=await body(req);
    const rule=cleanShipping({...cleanShipping(d.shippingRule||shippingConfig()),...(b.rule||b)});
-   const itemsCents=Math.round((d.items||[]).reduce((n,i)=>n+(Number(i.price)||0)*(Number(i.quantity)||0),0)*100);
+   const itemsCents=Math.round((d.items||[]).reduce((n,i)=>n+((Number(i.price)||0)+(Number(i.fee)||0))*(Number(i.quantity)||0),0)*100);
    const shipping=shippingCents(itemsCents,rule);
    d.shippingRule=rule;d.shipping=Math.round(shipping)/100;d.total=Math.round(itemsCents+shipping)/100;
    db.prepare('UPDATE orders SET details=? WHERE id=?').run(JSON.stringify(d),id);
@@ -531,7 +632,8 @@ const server=http.createServer(async(req,res)=>{
     return json(res,200,{ok:true,level:b.level});
    }
    if(url.pathname==='/api/admin/analytics'&&req.method==='GET'){
-    const span=Math.min(90,Math.max(1,Number(url.searchParams.get('days')||14)));
+    const requestedDays=Number(url.searchParams.get('days')||14);
+    const span=Math.min(90,Math.max(1,Number.isFinite(requestedDays)?requestedDays:14));
     const hourly=url.searchParams.get('mode')==='hour';
     const since=dayKey(-(span-1));
     const rows=db.prepare('SELECT day,hour,kind,ref,vid,source FROM events WHERE day>=?').all(since);
@@ -637,23 +739,40 @@ const server=http.createServer(async(req,res)=>{
    }
   }
   if(url.pathname==='/api/artwork'&&req.method==='POST'){
-   const ip=req.socket.remoteAddress||'x';const now=Date.now();const hits=(artworkHits.get(ip)||[]).filter(t=>now-t<600000);if(hits.length>=20)return json(res,429,{error:'上传过于频繁，请稍后再试'});
+   const ip=clientIP(req);if(!takeRate(artworkHits,ip,20,600000))return json(res,429,{error:'上传过于频繁，请稍后再试'});
    const b=await body(req,8e6);const data=typeof b.data==='string'?b.data:'';
    if(!data)throw Error('缺少图案文件');
    const buf=Buffer.from(data.replace(/^data:[^,]*,/,''),'base64');
    if(!buf.length)throw Error('图案数据无效');
    if(buf.length>2*1024*1024)throw Error('图案不能超过 2MB');
-   const isPng=buf[0]===0x89&&buf.toString('ascii',1,4)==='PNG';
+   const isPng=validPNG(buf,{requireAlpha:true});
    if(!isPng)throw Error('请上传透明背景 PNG');
    const name=createHash('sha256').update(buf).digest('hex').slice(0,32)+'.png';
    writeFileSync(join(uploadDir,name),buf);
-   artworkHits.set(ip,[...hits,now]);
    return json(res,201,{url:'/uploads/'+name});
   }
   if(url.pathname==='/api/payments/methods'&&req.method==='GET')return json(res,200,methods(paymentConfigFull(),paymentEnv()));
   if(url.pathname==='/api/payments/paypal/webhook'&&req.method==='POST'){
-   const event=await body(req);await verifyPayPalWebhook(event,req.headers,paymentConfigFull(),paymentEnv());
-   if(event.event_type==='PAYMENT.CAPTURE.COMPLETED'){const providerId=event.resource?.supplementary_data?.related_ids?.order_id;const row=db.prepare("SELECT order_id FROM payments WHERE json_extract(details,'$.provider')='paypal' AND json_extract(details,'$.providerId')=?").get(providerId||'');if(row)await locked(row.order_id,async()=>{const p=getPayment(row.order_id);if(p.status!=='paid'){const transaction=await capturePayPal(p,row.order_id,process.env);if(transaction)markPaid(row.order_id,transaction);}});}
+   const event=await body(req);
+   const providerId=event.event_type==='PAYMENT.CAPTURE.COMPLETED'?(event.resource?.supplementary_data?.related_ids?.order_id||''):'';
+   const row=providerId?db.prepare("SELECT order_id FROM payments WHERE json_extract(details,'$.provider')='paypal' AND json_extract(details,'$.providerId')=?").get(providerId):null;
+   // 验签要等远程 PayPal 回应，期间必须占住订单锁，否则过期扫描会在这几秒里返库。
+   const settle=async()=>{
+    await verifyPayPalWebhook(event,req.headers,paymentConfigFull(),paymentEnv());
+    if(!row)return;
+    const p=getPayment(row.order_id);if(!p||p.status==='paid')return;
+    const transaction=await capturePayPal(p,row.order_id,paymentEnv());
+    if(!transaction)return;
+    const o=getOrder(row.order_id);
+    let stockShort=false;
+    if(!orderPayable(o)&&o.details.stockReleased){
+     // PayPal 已真实扣款，但订单先被过期返库：能补回库存就补回，补不回也要记账，钱货不能两空。
+     stockShort=!reviveExpiredOrderStock(row.order_id);
+    }
+    markPaid(row.order_id,transaction);
+    if(stockShort)markLateStockShort(row.order_id);
+   };
+   if(row)await locked(row.order_id,settle); else await settle();
    return json(res,200,{ok:true});
   }
   const summaryRoute=url.pathname.match(/^\/api\/orders\/([^/]+)\/summary$/);
@@ -677,9 +796,10 @@ const server=http.createServer(async(req,res)=>{
    if(req.method==='GET'&&paymentRoute[2]==='payment'){const o=getOrder(id),policy=o.details.paymentPolicy||null;return json(res,200,{id,total:o.details.total,currency:o.details.currency,policy,allowed:allowedProviders(paymentConfigFull(),paymentEnv(),policy),payment:paymentView(getPayment(id))});}
    if(req.method==='POST')return await locked(id,async()=>{
     const existing=getPayment(id),o=getOrder(id);
+    if(!orderPayable(o))throw httpError(409,'订单已过期，不能继续付款');
     if(paymentRoute[2]==='transaction'){if(!existing||existing.provider!=='usdt')throw Error('No USDT payment found');if(existing.status==='paid')return json(res,200,{payment:paymentView(existing)});const b=await body(req);existing.submittedHash=transactionHash(b.transactionId);existing.status='awaiting_review';existing.submittedAt=new Date().toISOString();putPayment(id,existing);return json(res,200,{payment:paymentView(existing)});}
 
-    if(paymentRoute[2]==='capture'){if(!existing||existing.provider!=='paypal')throw Error('No PayPal checkout found');if(existing.status!=='paid'){const transaction=await capturePayPal(existing,id,process.env);if(transaction)markPaid(id,transaction);}return json(res,200,{payment:paymentView(getPayment(id))});}
+    if(paymentRoute[2]==='capture'){if(!existing||existing.provider!=='paypal')throw Error('No PayPal checkout found');if(existing.status!=='paid'){const transaction=await capturePayPal(existing,id,paymentEnv());if(transaction)markPaid(id,transaction);}return json(res,200,{payment:paymentView(getPayment(id))});}
     const b=await body(req);if(!['paypal','usdt'].includes(b.provider))throw Error('Unknown payment method');
     if(existing){if(existing.provider!==b.provider)throw Error('This order already has a payment method');return json(res,200,{payment:paymentView(existing)});}
     if(!methods(paymentConfigFull(),paymentEnv())[b.provider])throw Error('Payment method is not configured');
@@ -689,6 +809,7 @@ const server=http.createServer(async(req,res)=>{
    });
   }
   if(url.pathname==='/api/auth/register'&&req.method==='POST'){
+   if(!takeRate(registerHits,clientIP(req),5,3600000))return json(res,429,{error:'注册过于频繁，请稍后再试'});
    const b=await body(req);const email=String(b.email||'').trim().toLowerCase();
    if(!/^\S+@\S+\.\S+$/.test(email))throw Error('邮箱格式不正确');
    if(typeof b.password!=='string'||b.password.length<8)throw Error('密码至少 8 位');
@@ -700,12 +821,12 @@ const server=http.createServer(async(req,res)=>{
    return json(res,201,{email,level:'normal',name});
   }
   if(url.pathname==='/api/auth/login'&&req.method==='POST'){
-   const ip='c:'+req.socket.remoteAddress,now=Date.now(),a=attempts.get(ip)||{n:0,t:now};
+   const ip='c:'+clientIP(req),now=Date.now(),a=attempts.get(ip)||{n:0,t:now};
    if(now-a.t>600000){a.n=0;a.t=now;}
    if(a.n>=10)return json(res,429,{error:'尝试次数过多，请十分钟后再试'});
    const b=await body(req),email=String(b.email||'').trim().toLowerCase();
    const row=db.prepare('SELECT id,email,name,level,pass FROM customers WHERE email=?').get(email);
-   if(!row||typeof b.password!=='string'||!checkPass(b.password,row.pass)){a.n++;attempts.set(ip,a);return json(res,401,{error:'邮箱或密码不正确'});}
+   if(!row||typeof b.password!=='string'||!checkPass(b.password,row.pass)){a.n++;setBounded(attempts,ip,a);return json(res,401,{error:'邮箱或密码不正确'});}
    attempts.delete(ip);
    setCustomerCookie(res,row.id);
    return json(res,200,{email:row.email,name:row.name,level:row.level});
@@ -713,7 +834,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/auth/logout'&&req.method==='POST'){
    const token=(req.headers.cookie||'').match(/(?:^|;\s*)meridian_customer=([^;]+)/)?.[1];
    if(token)db.prepare('DELETE FROM customer_sessions WHERE token=?').run(digest(token));
-   res.setHeader('Set-Cookie',`meridian_customer=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);
+   res.setHeader('Set-Cookie',`meridian_customer=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureCookies?'; Secure':''}`);
    return json(res,200,{ok:true});
   }
   if(url.pathname==='/api/auth/me'&&req.method==='GET'){
@@ -721,6 +842,7 @@ const server=http.createServer(async(req,res)=>{
    return viewer?json(res,200,viewer):json(res,401,{error:'未登录'});
   }
   if(url.pathname==='/api/track'&&req.method==='POST'){
+   if(!takeRate(trackHits,clientIP(req),120,600000))return json(res,429,{error:'请求过于频繁'});
    const b=await body(req);
    const kind=['product','category','addcart'].includes(b.kind)?b.kind:'';
    if(!kind)return json(res,204,{});
@@ -750,7 +872,7 @@ const server=http.createServer(async(req,res)=>{
    const row=db.prepare('SELECT details FROM orders WHERE id=?').get(id);
    if(!row)return json(res,404,{error:'订单不存在'});
    const d=JSON.parse(row.details)||{};
-   const own=(d.customerId&&d.customerId===v.id)||String(d.email||'').toLowerCase()===String(v.email||'').toLowerCase();
+   const own=d.customerId&&d.customerId===v.id;
    if(!own)return json(res,403,{error:'无权访问该订单'});
    const token=randomBytes(24).toString('hex');
    db.prepare('INSERT INTO order_access VALUES (?,?) ON CONFLICT(order_id) DO UPDATE SET token_hash=excluded.token_hash').run(id,digest(token));
@@ -759,15 +881,12 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/account/orders'&&req.method==='GET'){
    const v=customerFromReq(req);
    if(!v)return json(res,401,{error:'请先登录'});
-   const rows=db.prepare('SELECT id,created,details FROM orders ORDER BY created DESC LIMIT 500').all();
+   const rows=db.prepare("SELECT id,created,details FROM orders WHERE json_extract(details,'$.customerId')=? ORDER BY created DESC LIMIT 30").all(v.id);
    const mine=[];
    for(const r of rows){
     let d;try{d=JSON.parse(r.details)||{};}catch{continue;}
-    const sameId=d.customerId&&d.customerId===v.id;
-    const sameMail=String(d.email||'').toLowerCase()===String(v.email||'').toLowerCase();
-    if(!sameId&&!sameMail)continue;
+    if(!d.customerId||d.customerId!==v.id)continue;
     mine.push({id:r.id,created:r.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,fee:i.fee||0,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),paymentPolicy:d.paymentPolicy||'',tracking:d.tracking||null,address:{name:d.name||'',line1:d.address||'',line2:d.address2||'',city:d.city||'',state:d.state||'',postalCode:d.postalCode||'',countryName:d.countryName||d.country||''}});
-    if(mine.length>=30)break;
    }
    return json(res,200,{orders:mine});
   }
@@ -775,9 +894,9 @@ const server=http.createServer(async(req,res)=>{
    const email=String(url.searchParams.get('email')||'').trim().toLowerCase();
    const ref=String(url.searchParams.get('id')||'').trim().toUpperCase();
    if(!email||!ref)return json(res,400,{error:'请输入下单邮箱和订单号'});
-   const ip=req.socket.remoteAddress,now=Date.now(),a=lookups.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;}if(a.n>=30)return json(res,429,{error:'查询次数过多，请十分钟后再试'});a.n++;lookups.set(ip,a);
-   const rows=db.prepare('SELECT id,created,details FROM orders ORDER BY created DESC LIMIT 500').all();
-   const hit=rows.find(r=>r.id.toUpperCase()===ref&&String((JSON.parse(r.details)||{}).email||'').toLowerCase()===email);
+   const ip=clientIP(req),now=Date.now(),a=lookups.get(ip)||{n:0,t:now};if(now-a.t>600000){a.n=0;a.t=now;}if(a.n>=30)return json(res,429,{error:'查询次数过多，请十分钟后再试'});a.n++;setBounded(lookups,ip,a);
+   const candidate=db.prepare('SELECT id,created,details FROM orders WHERE UPPER(id)=?').get(ref);
+   const hit=candidate&&String((JSON.parse(candidate.details)||{}).email||'').toLowerCase()===email?candidate:null;
    if(!hit)return json(res,404,{error:'没有找到匹配的订单，请核对邮箱和订单号'});
    const d=JSON.parse(hit.details);
    return json(res,200,{id:hit.id,created:hit.created,status:d.status,total:d.total,shipping:d.shipping,currency:'USD',items:(d.items||[]).map(i=>({name:i.name,quantity:i.quantity,price:i.price,fee:i.fee||0,image:i.image||null,...(i.artwork?{artwork:i.artwork}:{})})),countryName:d.countryName||d.country,tracking:d.tracking||null});
@@ -792,6 +911,7 @@ const server=http.createServer(async(req,res)=>{
    return json(res,200,{...p,access,locked:false});
   }
   if(url.pathname==='/api/orders'&&req.method==='POST'){
+   if(!takeRate(orderHits,clientIP(req),10,600000))return json(res,429,{error:'下单过于频繁，请稍后再试'});
    const b=await body(req);if(typeof b.email!=='string'||!/^\S+@\S+\.\S+$/.test(b.email))throw Error('Please enter a valid email address');
    if(typeof b.country!=='string'||!byCode(b.country))throw Error('Please select your country from the list');
    if(typeof b.postalCode!=='string'||!postcodeValid(b.country,b.postalCode))throw Error('That postal / ZIP code does not look right for the selected country');
@@ -854,6 +974,6 @@ const server=http.createServer(async(req,res)=>{
   const type=({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.woff2':'font/woff2','.json':'application/json; charset=utf-8'})[ext]||'application/octet-stream';
   const payload=readFileSync(abs);
   return send(req,res,200,type,file.endsWith('.html')?withAssets(payload.toString('utf8')):payload,{ETag:etag});
- }catch(e){json(res,400,{error:e.message||'请求失败'});}
+ }catch(e){const status=Number(e&&e.status)||400;json(res,status,{error:e&&e.message||'请求失败'});}
 });
 server.listen(Number(process.env.PORT||3000),process.env.HOST||'0.0.0.0',()=>console.log('MERIDIAN 商城已启动，端口 '+(process.env.PORT||3000)));

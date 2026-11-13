@@ -16,13 +16,14 @@ test('installer starts HTTP service, preserves config/orders on reinstall and st
  try{
   // Model the clean application checkout to avoid copying local customer data.
   mkdirSync(input);for(const f of ['install.sh','package.json','server.js','payments.js','mailer.js','smtp.js','countries.js','README.md','.env.example'])copyFileSync(join(source,f),join(input,f));
-  for(const d of ['public','scripts','test'])cpSync(join(source,d),join(input,d),{recursive:true});
+  for(const d of ['public','scripts','test','test-support'])cpSync(join(source,d),join(input,d),{recursive:true});
   writeFileSync(join(input,'.env'),'SHOULD_NOT_COPY=1\n');mkdirSync(join(input,'data'));writeFileSync(join(input,'data','private.txt'),'do not copy');
   const output=await command([join(input,'install.sh'),'--source',input,'--dir',base,'--no-start']);
   const configPath=join(base,'shared','config.env'),config=readFileSync(configPath,'utf8');
   assert.equal(statSync(configPath).mode&0o777,0o600);
   const password=config.match(/^ADMIN_PASSWORD=(.+)$/m)[1];assert.ok(password.length>=24);assert.ok(!output.includes(password));
   assert.equal(existsSync(join(base,'current','.env')),false);assert.equal(existsSync(join(base,'shared','data','private.txt')),false);
+  assert.ok(existsSync(join(base,'current','test-support','paypal-fetch-mock.mjs')),'release must ship the test helpers its test suite imports');
   const port=await freePort();writeFileSync(configPath,config.replace('PORT=3000','PORT='+port));
   manager=join(base,'bin','meridian');await command([manager,'start']);const url='http://127.0.0.1:'+port;
   const c={name:'Installer test',email:'test@example.com',phone:'+12025550123',country:'US',state:'MA',postalCode:'02108',address:'Test address',items:[{id:'p1',quantity:1}]};

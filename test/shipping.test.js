@@ -22,6 +22,7 @@ after(()=>{S.child.kill();rmSync(S.dir,{recursive:true,force:true});});
 
 let cookie='';
 let orderId='';
+let orderAccessToken='';
 const json=(u,o={})=>fetch(S.base+u,o);
 
 test('admin can read and change the shipping rule',async()=>{
@@ -44,6 +45,7 @@ test('a new order is charged the percentage of the goods total',async()=>{
  assert.equal(mk.status,201);
  const o=await mk.json();
  orderId=o.id;
+ orderAccessToken=o.accessToken;
  const itemsCents=Math.round(p.price*100);
  assert.equal(Math.round(o.shipping*100),Math.round(itemsCents*8/100));
  assert.equal(Math.round(o.total*100),itemsCents+Math.round(itemsCents*8/100));
@@ -101,11 +103,7 @@ test('/pay is a standalone page and the order summary reports shipping in dollar
  const rows=await (await json('/api/admin/orders',{headers:{Cookie:cookie}})).json();
  const fresh=rows.find(x=>x.id===orderId);
  assert.equal(Math.round(fresh.details.shipping*100),Math.round(items*10/100),'shipping is stored in dollars, not cents');
- const reg=await json('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'p@example.com',name:'P',password:'customerpass123'})});
- const customerCookie=reg.headers.get('set-cookie').split(';')[0];
- const owner=await json('/api/account/orders/'+encodeURIComponent(orderId)+'/access',{method:'POST',headers:{Cookie:customerCookie}});
- const {accessToken}=await owner.json();
- const sum=await json('/api/orders/'+encodeURIComponent(orderId)+'/summary',{headers:{Authorization:'Bearer '+accessToken}});
+ const sum=await json('/api/orders/'+encodeURIComponent(orderId)+'/summary',{headers:{Authorization:'Bearer '+orderAccessToken}});
  assert.equal(sum.status,200);
  const data=await sum.json();
  assert.equal(Math.round(data.shipping*100),Math.round(items*10/100));

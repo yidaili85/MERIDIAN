@@ -28,6 +28,7 @@ export function createMailer(env = process.env, fetchImpl = fetch) {
         host: smtpHost,
         port: Number(env.MAIL_SMTP_PORT || 587),
         secure: String(env.MAIL_SMTP_SECURE || '') === 'true',
+        allowInsecure: String(env.MAIL_SMTP_ALLOW_INSECURE || '') === 'true',
         user: env.MAIL_SMTP_USER || '',
         pass: env.MAIL_SMTP_PASS || '',
         from: addressOnly(from), fromName: name,

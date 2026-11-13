@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {smtpSend} from '../smtp.js';
+import {requiresStartTLS,smtpSend} from '../smtp.js';
 import {createMailer} from '../mailer.js';
 
 // 极简假 SMTP 服务：AUTH LOGIN + DATA 抓取
@@ -68,6 +68,13 @@ async function startWithRetry(attempts=3){
 }
 const S=await startWithRetry();
 after(()=>{S.child.kill();smtp.close();rmSync(S.dir,{recursive:true,force:true});});
+
+test('authenticated remote SMTP requires TLS unless explicitly overridden',()=>{
+ assert.equal(requiresStartTLS({host:'smtp.example.com',secure:false,user:'orders@example.com',allowInsecure:false}),true);
+ assert.equal(requiresStartTLS({host:'127.0.0.1',secure:false,user:'orders@example.com',allowInsecure:false}),false);
+ assert.equal(requiresStartTLS({host:'smtp.example.com',secure:true,user:'orders@example.com',allowInsecure:false}),false);
+ assert.equal(requiresStartTLS({host:'smtp.example.com',secure:false,user:'orders@example.com',allowInsecure:true}),false);
+});
 
 test('smtpSend delivers a multipart message over AUTH LOGIN',async()=>{
  await smtpSend({host:'127.0.0.1',port:smtpPort,user:'orders@example.com',pass:'mailpass',from:'orders@example.com',fromName:'MERIDIAN',to:'buyer@example.com',subject:'Order MY123',text:'plain body',html:'<b>html body</b>'});

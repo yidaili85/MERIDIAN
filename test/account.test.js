@@ -43,7 +43,7 @@ test('a registered customer gets an empty order list',async()=>{
 test('an order shows up in the account list with address and total',async()=>{
  const store=await (await fetch(S.base+'/api/store')).json();
  const pid=store.products[0].id;
- const mk=await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'buyer@example.com',name:'Buyer',phone:'+16175550123',address:'1 Main St',city:'Boston',state:'MA',postalCode:'02108',country:'US',items:[{id:pid,quantity:2}]})});
+ const mk=await fetch(S.base+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json',Cookie:customerCookie},body:JSON.stringify({email:'buyer@example.com',name:'Buyer',phone:'+16175550123',address:'1 Main St',city:'Boston',state:'MA',postalCode:'02108',country:'US',items:[{id:pid,quantity:2}]})});
  assert.equal(mk.status,201);
  const created=await mk.json();
  orderId=created.id;

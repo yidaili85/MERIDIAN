@@ -100,9 +100,14 @@ function buildMessage({ fromHeader, to, subject, text, html }) {
   return raw.split(CRLF).map((l) => (l.startsWith('.') ? '.' + l : l)).join(CRLF);
 }
 
+export function requiresStartTLS({host,secure,user,allowInsecure=false}) {
+  const local = ['127.0.0.1', '::1', 'localhost'].includes(String(host || '').toLowerCase());
+  return Boolean(user) && !secure && !allowInsecure && !local;
+}
+
 export async function smtpSend(opts) {
   const {
-    host, port = 587, secure = false, user, pass,
+    host, port = 587, secure = false, user, pass, allowInsecure = false,
     from, fromName = 'MERIDIAN', to, subject, text, html, timeout = 20000,
   } = opts;
   if (!host) throw Error('未配置 SMTP 服务器地址');
@@ -120,7 +125,8 @@ export async function smtpSend(opts) {
     })();
     if (ehlo.code !== 250) throw Error('SMTP EHLO 失败：' + ehlo.lines.join(' '));
 
-    if (!secure && ehlo.lines.some((l) => /STARTTLS/i.test(l))) {
+    const startTLS = !secure && ehlo.lines.some((l) => /STARTTLS/i.test(l));
+    if (startTLS) {
       c.write('STARTTLS');
       const r = await c.reply();
       if (r.code !== 220) throw Error('STARTTLS 被拒绝：' + r.lines.join(' '));
@@ -128,6 +134,9 @@ export async function smtpSend(opts) {
       c.write('EHLO meridian.local');
       ehlo = await c.reply();
       if (ehlo.code !== 250) throw Error('SMTP EHLO(加密后) 失败：' + ehlo.lines.join(' '));
+    }
+    if (!startTLS && requiresStartTLS({host, secure, user, allowInsecure})) {
+      throw Error('SMTP 服务器未提供 STARTTLS，已拒绝通过明文连接发送登录凭据');
     }
 
     if (user) {
